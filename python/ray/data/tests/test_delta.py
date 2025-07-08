@@ -73,7 +73,7 @@ def test_delta_read_basic(data_path, batch_size, write_mode):
     [
         lazy_fixture("local_path"),
         lazy_fixture("s3_path"),
-        lazy_fixture("s3_path_with_anonymous_crendential"),
+        lazy_fixture("s3_path_with_anonymous_credential"),
     ],
 )
 @pytest.mark.parametrize(
