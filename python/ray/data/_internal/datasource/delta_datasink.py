@@ -39,13 +39,6 @@ from ray._private.arrow_utils import get_pyarrow_version
 logger = logging.getLogger(__name__)
 
 
-def add_scheme_to_path(scheme, path):
-    parsed = urlparse(path)
-    if parsed.scheme:  # Already has a scheme
-        return path
-    return f"{scheme}://{path}"
-
-
 class WriteMode(Enum):
     # Error if the table already exists
     ERROR = "error"
