@@ -40,6 +40,7 @@ from ray.data._internal.datasource.clickhouse_datasink import (
     SinkMode,
 )
 from ray.data._internal.datasource.csv_datasink import CSVDatasink
+from ray.data._internal.datasource.delta_datasink import DeltaDatasink, WriteMode
 from ray.data._internal.datasource.iceberg_datasink import IcebergDatasink
 from ray.data._internal.datasource.image_datasink import ImageDatasink
 from ray.data._internal.datasource.json_datasink import JSONDatasink
@@ -125,6 +126,7 @@ if TYPE_CHECKING:
     import modin
     import pandas
     import pyarrow
+    import pyarrow.fs as pa_fs
     import pyspark
     import tensorflow as tf
     import torch
@@ -3327,6 +3329,88 @@ class Dataset:
             list if the input files is not known.
         """
         return list(set(self._plan.input_files()))
+
+    @ConsumptionAPI
+    @PublicAPI(api_group=IOC_API_GROUP)
+    def write_delta(
+        self,
+        path: str,
+        *,
+        schema: Optional[pyarrow.Schema] = None,
+        mode: Optional[WriteMode] = "append",
+        configuration: Optional[dict] = None,
+        max_partitions: Optional[int] = None,
+        overwrite_schema: bool = False,
+        try_create_dir: bool = True,
+        open_stream_args: Optional[Dict[str, Any]] = None,
+        filename_provider: Optional[FilenameProvider] = None,
+        filesystem: Optional["pa_fs.FileSystem"] = None,
+        ray_remote_args: Optional[Dict[str, Any]] = None,
+        concurrency: Optional[int] = None,
+    ):
+        """
+        Write this ``Dataset`` to a Delta lake table.
+
+        Example:
+            .. testcode::
+                :skipif: True
+
+                import ray
+
+                ds = ray.data.read_parquet("s3://anonymous@ray-example-data/iris.parquet")
+                ds.write_delta("./iris_delta")
+
+        Args:
+
+            path: The str path or URI to the Delta table to write to.
+            schema: The PyArrow schema of the dataset. Defaults to None.
+            mode: The write mode. One of "error", "append" (default), "overwrite", "ignore"
+            configuration: Optional Delta Lake write configuration dictionary
+                of config values, specifying advanced table/file properties.
+                    - schema: Optional PyArrow schema to write. Defaults to None
+                    - partition_cols: List of partition columns as strings (alias of partition_by). Defaults to None.
+                    - partition_by: List of partition columns as strings. Defaults to None.
+                    - partition_filters: For partition overwrite, pyarrow only. Defaults to None
+                    - file_options: Parquet file write options, e.g., ParquetFileWriteOptions. Defaults to None.
+                    - max_partitions: Maximum partitions to use (pyarrow only). Defaults to None.
+                    - max_open_files: Max number of files left open while writing. Defaults to 1024.
+                    - max_rows_per_file: Max number of rows per file (0 or less is unlimited). Defaults to 10_485_760
+                    - max_rows_per_group: Max number of rows per group. Defaults to 131_072.
+                    - min_rows_per_group: Min number of rows per group. Defaults to 65_536.
+                    - name: User-provided string identifier for the table. Defaults to None.
+                    - description: Description for the table for the metadata. Defaults to None.
+                    - configuration: Metadata action config map. Defaults to None. See the delta-rs write API for more details.
+                    - overwrite_schema: If True, overwrite existing schema. Defaults to False.
+                    - storage_options: Native delta filesystem options. Defaults to None.
+                    - engine: String option for Writer engine, one of "pyarrow" or "rust." Defaults to "rust".
+                    - large_dtypes: Only used for pyarrow engine. Defaults to False.
+                    - writer_properties (Optional[Any]): Rust parquet writer properties. Defaults to None.
+                    - predicate: Predicate as string for overwrite mode (rust only). Defaults to None.
+                    - target_file_size: Target number of file size override. Defaults to None.
+            max_partitions: The maximum number of partitions for the Ray Data writer. Defaults to None.
+            try_create_dir: If True, create the directory if it doesn't exist. Defaults to True.
+            open_stream_args: Arguments for opening the output stream, e.g. for S3/Azure. Defaults to None.
+            filename_provider: A custom callable/provider for file naming. Defaults to None.
+            filesystem: The PyArrow-compatible filesystem object. Defaults to None.
+            ray_remote_args: Custom Ray remote task options; passed to ray.remote. Defaults to None.
+            concurrency: Number of concurrent write tasks/workers. Default to None, uses default Ray parallelism.
+        """
+        return self.write_datasink(
+            DeltaDatasink(
+                path=path,
+                schema=schema,
+                mode=mode,
+                max_partitions=max_partitions,
+                overwrite_schema=overwrite_schema,
+                delta_config=configuration,
+                try_create_dir=try_create_dir,
+                open_stream_args=open_stream_args,
+                filename_provider=filename_provider,
+                filesystem=filesystem,
+            ),
+            ray_remote_args=ray_remote_args,
+            concurrency=concurrency,
+        )
 
     @ConsumptionAPI
     @PublicAPI(api_group=IOC_API_GROUP)
