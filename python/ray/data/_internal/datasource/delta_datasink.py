@@ -1,40 +1,39 @@
 import json
+import logging
 import uuid
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
-from urllib.parse import urlparse
-from packaging.version import parse as parse_version
 from enum import Enum
 from pathlib import Path
 from typing import (
+    Any,
+    Dict,
+    Iterable,
     Iterator,
+    List,
+    Literal,
     Mapping,
+    Optional,
     Tuple,
     Union,
-    List,
-    Optional,
-    Dict,
-    Any,
-    Iterable,
-    Literal,
 )
+from urllib.parse import urlparse
 
 import pyarrow as pa
 import pyarrow.dataset as pa_ds
 import pyarrow.fs as pa_fs
 
-from ray.data._internal.util import _check_import
-from ray.data.datasource.file_datasink import _FileDatasink
+from packaging.version import parse as parse_version
 
 import ray
 
-import logging
-
+from ray._private.arrow_utils import get_pyarrow_version
+from ray.data._internal.util import _check_import
 from ray.data._internal.execution.interfaces import TaskContext
 from ray.data.block import Block, BlockAccessor
 
-from ray._private.arrow_utils import get_pyarrow_version
+from ray.data.datasource.file_datasink import _FileDatasink
 
 logger = logging.getLogger(__name__)
 
