@@ -22,8 +22,8 @@ from typing import (
     Union,
 )
 
-import pyarrow as pa
 import numpy as np
+import pyarrow as pa
 
 import ray
 import ray.cloudpickle as pickle
@@ -3348,21 +3348,18 @@ class Dataset:
         filesystem: Optional["pa_fs.FileSystem"] = None,
         ray_remote_args: Optional[Dict[str, Any]] = None,
         concurrency: Optional[int] = None,
-    ):
-        """
-        Write this ``Dataset`` to a Delta lake table.
+    ) -> None:
+        """Write the :class:`~ray.data.Dataset` to a Delta Lake table.
 
-        Example:
-            .. testcode::
+        Examples:
+             .. testcode::
                 :skipif: True
 
                 import ray
-
                 ds = ray.data.read_parquet("s3://anonymous@ray-example-data/iris.parquet")
-                ds.write_delta("./iris_delta")
+                ds.write_delta("local:///tmp/iris_delta")
 
         Args:
-
             path: The str path or URI to the Delta table to write to.
             schema: The PyArrow schema of the dataset. Defaults to None.
             mode: The write mode. One of "error", "append" (default), "overwrite", "ignore"
