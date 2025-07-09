@@ -219,19 +219,6 @@ class DeltaWriteConfig:
 
 
 class DeltaUtilities:
-    """
-    Handles writing data batches to a Delta Table
-
-    Example:
-        writer = DeltaDatasetWriter(
-            delta_uri="s3://bucket/path/to/delta-table",
-            schema=schema,
-            filesystem=fs,
-            partition_cols=["country", "date"]
-        )
-        add_actions = writer.write(batch_ref, file_options=file_opts)
-    """
-
     def __init__(
         self,
         delta_uri: str,
@@ -242,6 +229,19 @@ class DeltaUtilities:
         config: Optional[DeltaWriteConfig] = None,
     ) -> None:
         """
+        Handles writing data batches to a Delta Table
+
+        Examples:
+            .. testcode::
+                :skipif: True
+
+                writer = DeltaDatasetWriter(
+                    delta_uri="s3://bucket/path/to/delta-table",
+                    schema=schema,
+                    filesystem=fs,
+                    partition_cols=["country", "date"]
+                )
+                add_actions = writer.write(batch_ref, file_options=file_opts)
 
         Args:
             delta_uri: The root URI of the Delta table.
@@ -324,7 +324,14 @@ class DeltaUtilities:
 
     @staticmethod
     def _add_scheme_to_path(scheme: str, path: str) -> str:
-        """Ensure the path has the correct URI scheme."""
+        """Ensure the path has the correct URI scheme.
+
+        Args:
+            scheme: File format scheme
+            path: The path to parse
+        Returns:
+            String of the {scheme}://{path}
+        """
         parsed = urlparse(path)
         if parsed.scheme:
             return path
@@ -334,8 +341,10 @@ class DeltaUtilities:
     def _get_partitions_from_path(path: str) -> Tuple[str, Dict[str, Optional[str]]]:
         """
         Parses the path to extract partition information.
+
         Args:
             path: The path to parse.
+
         Returns:
             A tuple containing the path and a dictionary of partition values.
         """
@@ -436,6 +445,10 @@ class DeltaUtilities:
     def _get_current_delta_version(self, storage_options=None) -> int:
         """
         Fetch the current version of the Delta table, or -1 if new.
+
+        Args:
+            storage_options: Optional storage options to pass to ``try_get_deltatable``
+
         Returns:
             The integer version.
         """
@@ -458,6 +471,7 @@ class DeltaUtilities:
         Args:
             batch_ref: The data to write
             file_options: File-level write options.
+            storage_options: Optional storage options to pass to ``_get_current_delta_version``
 
         Returns:
             A list of AddAction objects for the new files.
@@ -628,9 +642,6 @@ class DeltaDatasink(_FileDatasink):
         configuration: Optional[Mapping[str, Optional[str]]],
         mode: Optional[WriteMode] = WriteMode.APPEND.value,
     ) -> None:
-        """
-        Checks if the table is append-only and if the mode matches.
-        """
         config_delta_append_only = (
             configuration and configuration.get("delta.appendOnly", "false") == "true"
         )
@@ -641,7 +652,7 @@ class DeltaDatasink(_FileDatasink):
             )
 
     def _extract_schema_and_partition_cols(self, blocks: Iterable[Block]):
-        """Finds and returns arrow schema and partition columns from the first non-empty block."""
+        # Finds and returns arrow schema and partition columns from the first non-empty block.
         for block in blocks:
             acc = BlockAccessor.for_block(block)
             if acc.num_rows() > 0:
