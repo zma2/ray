@@ -23,15 +23,17 @@ from urllib.parse import urlparse
 import pyarrow as pa
 import pyarrow.dataset as pa_ds
 import pyarrow.fs as pa_fs
-from pyarrow.parquet import FileMetaData
 from packaging.version import parse as parse_version
+from pyarrow.parquet import FileMetaData
 
 import ray
 from ray._private.arrow_utils import get_pyarrow_version
 from ray.data._internal.execution.interfaces import TaskContext
 from ray.data._internal.util import _check_import
+from ray._raylet import ObjectRef
 from ray.data.block import Block, BlockAccessor
 from ray.data.datasource.file_datasink import _FileDatasink
+
 
 logger = logging.getLogger(__name__)
 
@@ -250,6 +252,7 @@ class DeltaUtilities:
             filesystem: The Arrow-compatible filesystem object.
             partition_cols: Columns to partition by; optional.
             max_partitions: Upper bound for file parallelism (default 128).
+            config: Optional DeltaConfig object
         """
         self.delta_uri = delta_uri
         self.schema = schema
@@ -445,7 +448,7 @@ class DeltaUtilities:
                         )
         return stats
 
-    def _get_current_delta_version(self, storage_options=None) -> int:
+    def _get_current_delta_version(self, storage_options: Optional[dict] = None) -> int:
         """
         Fetch the current version of the Delta table, or -1 if new.
 
@@ -464,7 +467,7 @@ class DeltaUtilities:
 
     def write_raw_data(
         self,
-        batch_ref,
+        batch_ref: ObjectRef[pa.Table],
         file_options: Optional[Dict] = None,
         storage_options: Optional[Dict] = None,
     ) -> List[Any]:
