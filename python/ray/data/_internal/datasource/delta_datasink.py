@@ -23,6 +23,7 @@ from urllib.parse import urlparse
 import pyarrow as pa
 import pyarrow.dataset as pa_ds
 import pyarrow.fs as pa_fs
+from pyarrow.parquet import FileMetaData
 from packaging.version import parse as parse_version
 
 import ray
@@ -274,7 +275,9 @@ class DeltaUtilities:
         else:
             self.partitioning = None
 
-    def _get_add_action_for_written_file(self, written_file, delta_uri: str) -> Any:
+    def _get_add_action_for_written_file(
+        self, written_file: pa_ds.WrittenFile, delta_uri: str
+    ) -> Any:
         """
         Converts a written file record into an AddAction object.
         You may want to adapt this for your AddAction and file stats logic.
@@ -367,7 +370,7 @@ class DeltaUtilities:
 
     @staticmethod
     def _get_file_stats_from_metadata(
-        metadata,
+        metadata: FileMetaData,
     ) -> Dict[str, Union[int, Dict[str, Any]]]:
         """
         Extracts statistics from the metadata.
@@ -491,7 +494,7 @@ class DeltaUtilities:
         # Generate a unique basename for the files to be written
         basename_template = f"{version + 1}-{uuid.uuid4()}-{{i}}.parquet"
 
-        def visitor(written_file) -> None:
+        def visitor(written_file: pa_ds.WrittenFile) -> None:
             add_action = self._get_add_action_for_written_file(
                 written_file, self.delta_uri
             )
@@ -661,7 +664,7 @@ class DeltaDatasink(_FileDatasink):
                 return table.schema, self.partition_cols or []
         return None, self.partition_cols or []
 
-    def _get_schema(self, write_result):
+    def _get_schema(self, write_result: DeltaSinkWriteResult):
         schema = None
         if hasattr(write_result, "schema") and write_result.schema is not None:
             schema = write_result.schema
