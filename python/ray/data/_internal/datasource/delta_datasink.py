@@ -28,9 +28,9 @@ from pyarrow.parquet import FileMetaData
 
 import ray
 from ray._private.arrow_utils import get_pyarrow_version
+from ray._raylet import ObjectRef
 from ray.data._internal.execution.interfaces import TaskContext
 from ray.data._internal.util import _check_import
-from ray._raylet import ObjectRef
 from ray.data.block import Block, BlockAccessor
 from ray.data.datasource.file_datasink import _FileDatasink
 
@@ -467,7 +467,7 @@ class DeltaUtilities:
 
     def write_raw_data(
         self,
-        batch_ref: ObjectRef[pa.Table],
+        batch_ref: ObjectRef,
         file_options: Optional[Dict] = None,
         storage_options: Optional[Dict] = None,
     ) -> List[Any]:

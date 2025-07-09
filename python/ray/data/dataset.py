@@ -3365,23 +3365,23 @@ class Dataset:
             mode: The write mode. One of "error", "append" (default), "overwrite", "ignore"
             configuration: Optional Delta Lake write configuration dictionary
                 of config values, specifying advanced table/file properties.
-                    - partition_cols: List of partition columns as strings (alias of partition_by). Defaults to None.
-                    - partition_by: List of partition columns as strings. Defaults to None.
-                    - partition_filters: For partition overwrite, pyarrow only. Defaults to None
-                    - file_options: Parquet file write options, e.g., ParquetFileWriteOptions. Defaults to None.
-                    - max_open_files: Max number of files left open while writing. Defaults to 1024.
-                    - max_rows_per_file: Max number of rows per file (0 or less is unlimited). Defaults to 10_485_760
-                    - max_rows_per_group: Max number of rows per group. Defaults to 131_072.
-                    - min_rows_per_group: Min number of rows per group. Defaults to 65_536.
-                    - name: User-provided string identifier for the table. Defaults to None.
-                    - description: Description for the table for the metadata. Defaults to None.
-                    - configuration: Metadata action config map. Defaults to None. See the delta-rs write API for more details.
-                    - storage_options: Native delta filesystem options. Defaults to None.
-                    - engine: String option for Writer engine, one of "pyarrow" or "rust." Defaults to "rust".
-                    - large_dtypes: Only used for pyarrow engine. Defaults to False.
-                    - writer_properties (Optional[Any]): Rust parquet writer properties. Defaults to None.
-                    - predicate: Predicate as string for overwrite mode (rust only). Defaults to None.
-                    - target_file_size: Target number of file size override. Defaults to None.
+                - partition_cols: List of partition columns as strings (alias of partition_by). Defaults to None.
+                - partition_by: List of partition columns as strings. Defaults to None.
+                - partition_filters: For partition overwrite, pyarrow only. Defaults to None
+                - file_options: Parquet file write options, e.g., ParquetFileWriteOptions. Defaults to None.
+                - max_open_files: Max number of files left open while writing. Defaults to 1024.
+                - max_rows_per_file: Max number of rows per file (0 or less is unlimited). Defaults to 10_485_760
+                - max_rows_per_group: Max number of rows per group. Defaults to 131_072.
+                - min_rows_per_group: Min number of rows per group. Defaults to 65_536.
+                - name: User-provided string identifier for the table. Defaults to None.
+                - description: Description for the table for the metadata. Defaults to None.
+                - configuration: Metadata action config map. Defaults to None. See the delta-rs write API for more details.
+                - storage_options: Native delta filesystem options. Defaults to None.
+                - engine: String option for Writer engine, one of "pyarrow" or "rust." Defaults to "rust".
+                - large_dtypes: Only used for pyarrow engine. Defaults to False.
+                - writer_properties (Optional[Any]): Rust parquet writer properties. Defaults to None.
+                - predicate: Predicate as string for overwrite mode (rust only). Defaults to None.
+                - target_file_size: Target number of file size override. Defaults to None.
             max_partitions: The maximum number of partitions for the Ray Data writer. Defaults to None.
             overwrite_schema: If True, overwrite existing schema. Defaults to False.
             try_create_dir: If True, create the directory if it doesn't exist. Defaults to True.
