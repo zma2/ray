@@ -22,6 +22,7 @@ from typing import (
     Union,
 )
 
+import pyarrow as pa
 import numpy as np
 
 import ray
@@ -3336,7 +3337,7 @@ class Dataset:
         self,
         path: str,
         *,
-        schema: Optional[pyarrow.Schema] = None,
+        schema: Optional[pa.Schema] = None,
         mode: Optional[WriteMode] = "append",
         configuration: Optional[dict] = None,
         max_partitions: Optional[int] = None,

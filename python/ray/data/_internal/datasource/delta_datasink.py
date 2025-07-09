@@ -23,16 +23,13 @@ from urllib.parse import urlparse
 import pyarrow as pa
 import pyarrow.dataset as pa_ds
 import pyarrow.fs as pa_fs
-
 from packaging.version import parse as parse_version
 
 import ray
-
 from ray._private.arrow_utils import get_pyarrow_version
 from ray.data._internal.execution.interfaces import TaskContext
 from ray.data._internal.util import _check_import
 from ray.data.block import Block, BlockAccessor
-
 from ray.data.datasource.file_datasink import _FileDatasink
 
 logger = logging.getLogger(__name__)
