@@ -41,7 +41,11 @@ from ray.data._internal.datasource.clickhouse_datasink import (
     SinkMode,
 )
 from ray.data._internal.datasource.csv_datasink import CSVDatasink
-from ray.data._internal.datasource.delta_datasink import DeltaDatasink, WriteMode
+from ray.data._internal.datasource.delta_datasink import (
+    DeltaDatasink,
+    WriteMode,
+    DeltaWriteConfig,
+)
 from ray.data._internal.datasource.iceberg_datasink import IcebergDatasink
 from ray.data._internal.datasource.image_datasink import ImageDatasink
 from ray.data._internal.datasource.json_datasink import JSONDatasink
@@ -3339,9 +3343,27 @@ class Dataset:
         *,
         schema: Optional[pa.Schema] = None,
         mode: Optional[WriteMode] = "append",
-        configuration: Optional[dict] = None,
+        partition_cols: Optional[List[str]] = None,
+        partition_by: Optional[Union[List[str], str]] = None,
+        partition_filters: Optional[List[Tuple[str, str, Any]]] = None,
+        file_options: Optional[Any] = None,
         max_partitions: Optional[int] = None,
+        max_open_files: int = 1024,
+        max_rows_per_file: int = 10_485_760,
+        max_rows_per_group: int = 131_072,
+        min_rows_per_group: int = 65_536,
+        name: Optional[str] = None,
+        description: Optional[str] = None,
+        metadata_configuration: Optional[
+            Mapping[str, Optional[str]]
+        ] = None,  # renamed from "configuration" for clarity
         overwrite_schema: bool = False,
+        storage_options: Optional[Dict[str, str]] = None,
+        engine: Literal["pyarrow", "rust"] = "rust",
+        large_dtypes: bool = False,
+        writer_properties: Optional[Any] = None,  # WriterProperties from deltalake
+        predicate: Optional[str] = None,
+        target_file_size: Optional[int] = None,
         try_create_dir: bool = True,
         open_stream_args: Optional[Dict[str, Any]] = None,
         filename_provider: Optional[FilenameProvider] = None,
@@ -3349,56 +3371,74 @@ class Dataset:
         ray_remote_args: Optional[Dict[str, Any]] = None,
         concurrency: Optional[int] = None,
     ) -> None:
-        """Write the :class:`~ray.data.Dataset` to a Delta Lake table.
+        """
+        Write this :class:`~ray.data.Dataset` as a Delta Lake table.
 
-        Examples:
-             .. testcode::
-                :skipif: True
-
-                import ray
-                ds = ray.data.read_parquet("s3://anonymous@ray-example-data/iris.parquet")
-                ds.write_delta("local:///tmp/iris_delta")
+        Example:
+            import ray
+            ds = ray.data.read_parquet("s3://anonymous@ray-example-data/iris.parquet")
+            ds.write_delta("local:///tmp/iris_delta")
 
         Args:
-            path: The str path or URI to the Delta table to write to.
-            schema: The PyArrow schema of the dataset. Defaults to None.
-            mode: The write mode. One of "error", "append" (default), "overwrite", "ignore"
-            configuration: Optional Delta Lake write configuration dictionary
-                of config values, specifying advanced table/file properties.
-                - partition_cols: List of partition columns as strings (alias of partition_by). Defaults to None.
-                - partition_by: List of partition columns as strings. Defaults to None.
-                - partition_filters: For partition overwrite, pyarrow only. Defaults to None
-                - file_options: Parquet file write options, e.g., ParquetFileWriteOptions. Defaults to None.
-                - max_open_files: Max number of files left open while writing. Defaults to 1024.
-                - max_rows_per_file: Max number of rows per file (0 or less is unlimited). Defaults to 10_485_760
-                - max_rows_per_group: Max number of rows per group. Defaults to 131_072.
-                - min_rows_per_group: Min number of rows per group. Defaults to 65_536.
-                - name: User-provided string identifier for the table. Defaults to None.
-                - description: Description for the table for the metadata. Defaults to None.
-                - configuration: Metadata action config map. Defaults to None. See the delta-rs write API for more details.
-                - storage_options: Native delta filesystem options. Defaults to None.
-                - engine: String option for Writer engine, one of "pyarrow" or "rust." Defaults to "rust".
-                - large_dtypes: Only used for pyarrow engine. Defaults to False.
-                - writer_properties (Optional[Any]): Rust parquet writer properties. Defaults to None.
-                - predicate: Predicate as string for overwrite mode (rust only). Defaults to None.
-                - target_file_size: Target number of file size override. Defaults to None.
-            max_partitions: The maximum number of partitions for the Ray Data writer. Defaults to None.
-            overwrite_schema: If True, overwrite existing schema. Defaults to False.
-            try_create_dir: If True, create the directory if it doesn't exist. Defaults to True.
-            open_stream_args: Arguments for opening the output stream, e.g. for S3/Azure. Defaults to None.
-            filename_provider: A custom callable/provider for file naming. Defaults to None.
-            filesystem: The PyArrow-compatible filesystem object. Defaults to None.
-            ray_remote_args: Custom Ray remote task options; passed to ray.remote. Defaults to None.
-            concurrency: Number of concurrent write tasks/workers. Default to None, uses default Ray parallelism.
+            path: Path or URI of the target Delta table.
+            schema: PyArrow schema to write, or None to infer.
+            mode: Write mode. One of "error", "append" (default), "overwrite", "ignore".
+            partition_cols: List of column names to partition the table by (alias of partition_by).
+            partition_by: Alternative way to specify partition columns as list or comma-separated string.
+            partition_filters: Partition overwrite filters (pyarrow engine only).
+            file_options: Custom file (Parquet) write options.
+            max_partitions: Max number of partitions (pyarrow only).
+            max_open_files: Max files left open while writing.
+            max_rows_per_file: Max number of rows per output file (0 disables).
+            max_rows_per_group: Max number of rows per group.
+            min_rows_per_group: Min number of rows per group before writing (for batch).
+            name: Optional identifier for this table.
+            description: User-provided table description.
+            metadata_configuration: Custom metadata configuration map (for advanced users).
+            overwrite_schema: If True, existing schema is overwritten if incompatible.
+            storage_options: Delta filesystem options (native Delta).
+            engine: Writer engine, one of "pyarrow" or "rust" (default "rust").
+            large_dtypes: PyArrow-only. Support for large data types.
+            writer_properties: Parquet writer properties (rust engine).
+            predicate: Predicate for overwrite mode (rust only).
+            target_file_size: Target file size override, in bytes.
+            try_create_dir: If True, create the target directory if needed.
+            open_stream_args: Output stream configuration, e.g. for S3/Azure.
+            filename_provider: Custom filename provider callable.
+            filesystem: PyArrow filesystem object.
+            ray_remote_args: Advanced Ray remote task options.
+            concurrency: Desired Ray write-parallelism.
+
         """
+        # Build config object; map new parameters to config fields
+        config = DeltaWriteConfig()
+
+        config.schema = schema
+        config.partition_cols = partition_cols
+        config.partition_by = partition_by
+        config.partition_filters = partition_filters
+        config.file_options = file_options
+        config.max_partitions = max_partitions
+        config.max_open_files = max_open_files
+        config.max_rows_per_file = max_rows_per_file
+        config.max_rows_per_group = max_rows_per_group
+        config.min_rows_per_group = min_rows_per_group
+        config.name = name
+        config.description = description
+        config.configuration = metadata_configuration
+        config.overwrite_schema = overwrite_schema
+        config.storage_options = storage_options
+        config.engine = engine
+        config.large_dtypes = large_dtypes
+        config.writer_properties = writer_properties
+        config.predicate = predicate
+        config.target_file_size = target_file_size
+
         return self.write_datasink(
             DeltaDatasink(
                 path=path,
-                schema=schema,
                 mode=mode,
-                max_partitions=max_partitions,
-                overwrite_schema=overwrite_schema,
-                delta_config=configuration,
+                delta_config=config,
                 try_create_dir=try_create_dir,
                 open_stream_args=open_stream_args,
                 filename_provider=filename_provider,

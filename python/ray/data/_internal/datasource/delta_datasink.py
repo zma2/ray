@@ -34,7 +34,6 @@ from ray.data._internal.util import _check_import
 from ray.data.block import Block, BlockAccessor
 from ray.data.datasource.file_datasink import _FileDatasink
 
-
 logger = logging.getLogger(__name__)
 
 
@@ -140,10 +139,8 @@ class DeltaWriteConfig:
         from deltalake import WriterProperties
 
         # --- Schema ---
-        # Optional schema to write.
-        self.schema: Optional[
-            pa.Schema
-        ] = None  # Or replace with another type as needed!
+        # Partition columns (alias of partition_by).
+        self.schema: Optional[pa.Schema] = None
 
         # --- Partitioning ---
         # Partition columns (alias of partition_by).
