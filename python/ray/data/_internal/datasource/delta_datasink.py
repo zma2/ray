@@ -276,7 +276,7 @@ class DeltaUtilities:
             self.partitioning = None
 
     def _get_add_action_for_written_file(
-        self, written_file: pa_ds.WrittenFile, delta_uri: str
+        self, written_file: Any, delta_uri: str
     ) -> Any:
         """
         Converts a written file record into an AddAction object.
@@ -494,7 +494,7 @@ class DeltaUtilities:
         # Generate a unique basename for the files to be written
         basename_template = f"{version + 1}-{uuid.uuid4()}-{{i}}.parquet"
 
-        def visitor(written_file: pa_ds.WrittenFile) -> None:
+        def visitor(written_file: Any) -> None:
             add_action = self._get_add_action_for_written_file(
                 written_file, self.delta_uri
             )
