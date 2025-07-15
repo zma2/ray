@@ -3414,7 +3414,7 @@ class Dataset:
         """
         Write this :class:`~ray.data.Dataset` as a Delta Lake table.
 
-        Example:
+        Examples:
             import ray
             ds = ray.data.read_parquet("s3://anonymous@ray-example-data/iris.parquet")
             ds.write_delta("local:///tmp/iris_delta")
