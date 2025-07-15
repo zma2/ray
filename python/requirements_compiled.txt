@@ -410,12 +410,7 @@ delta-sharing==1.0.5
 deltalake==1.0.2
     # via -r python/requirements/ml/data-test-requirements.txt
 deprecated==1.2.18
-    # via
-    #   deltalake
-    #   opentelemetry-api
-    #   opentelemetry-exporter-otlp-proto-grpc
-    #   opentelemetry-exporter-otlp-proto-http
-    #   opentelemetry-semantic-conventions
+    # via deltalake
 dill==0.3.7
     # via
     #   datasets
@@ -2489,6 +2484,7 @@ wrapt==1.14.1
     #   aiobotocore
     #   aws-xray-sdk
     #   comet-ml
+    #   deprecated
     #   tensorflow
     #   tensorflow-datasets
 wurlitzer==3.1.1
