@@ -102,11 +102,11 @@ def test_delta_write_partitioned(data_path, batch_size, write_mode):
     )
     ds = ray.data.from_pandas(df)
 
-    ds.write_delta(path, mode=write_mode, configuration={"partition_cols": "part"})
+    ds.write_delta(path, mode=write_mode, partition_cols=["part"])
 
     # If 'append', write again (should double count)
     if write_mode == "append":
-        ds.write_delta(path, mode=write_mode, configuration={"partition_cols": "part"})
+        ds.write_delta(path, mode=write_mode, partition_cols=["part"])
 
     # Read the table back
     res_ds = ray.data.read_delta(path)
