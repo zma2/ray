@@ -500,8 +500,10 @@ class DeltaUtilities:
             )
             add_actions.append(add_action)
 
+        arrow_table = BlockAccessor.for_block(batch_ref).to_arrow()
+
         pa_ds.write_dataset(
-            batch_ref,
+            arrow_table,
             base_dir=base_dir,
             basename_template=basename_template,
             format="parquet",
