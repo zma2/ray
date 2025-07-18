@@ -3382,35 +3382,35 @@ class Dataset:
         path: str,
         *,
         schema: Optional[pa.Schema] = None,
-        mode: Optional[WriteMode] = "append",
+        mode: Optional[str] = WriteMode.APPEND.value,
         partition_cols: Optional[List[str]] = None,
         partition_by: Optional[Union[List[str], str]] = None,
         partition_filters: Optional[List[Tuple[str, str, Any]]] = None,
         file_options: Optional[Any] = None,
         max_partitions: Optional[int] = None,
         max_open_files: int = 1024,
-        max_rows_per_file: int = 10_485_760,
-        max_rows_per_group: int = 131_072,
-        min_rows_per_group: int = 65_536,
+        max_rows_per_file: int = 10 * 1024 * 1024,
+        max_rows_per_group: int = 128 * 1024,
+        min_rows_per_group: int = 64 * 1024,
         name: Optional[str] = None,
         description: Optional[str] = None,
-        metadata_configuration: Optional[
-            Mapping[str, Optional[str]]
-        ] = None,  # renamed from "configuration" for clarity
+        metadata_configuration: Optional[Mapping[str, Optional[str]]] = None,
         overwrite_schema: bool = False,
         storage_options: Optional[Dict[str, str]] = None,
         engine: Literal["pyarrow", "rust"] = "rust",
         large_dtypes: bool = False,
-        writer_properties: Optional[Any] = None,  # WriterProperties from deltalake
+        writer_properties: Optional[Any] = None,
         predicate: Optional[str] = None,
         target_file_size: Optional[int] = None,
         try_create_dir: bool = True,
         open_stream_args: Optional[Dict[str, Any]] = None,
-        filename_provider: Optional[FilenameProvider] = None,
+        filename_provider: Optional[Any] = None,
         filesystem: Optional["pa_fs.FileSystem"] = None,
         ray_remote_args: Optional[Dict[str, Any]] = None,
         concurrency: Optional[int] = None,
-    ) -> None:
+        commit_properties: Optional[Any] = None,
+        post_commithook_properties: Optional[Any] = None,
+    ):
         """
         Write this :class:`~ray.data.Dataset` as a Delta Lake table.
 
@@ -3450,29 +3450,30 @@ class Dataset:
             concurrency: Desired Ray write-parallelism.
 
         """
-        # Build config object; map new parameters to config fields
-        config = DeltaWriteConfig()
-
-        config.schema = schema
-        config.partition_cols = partition_cols
-        config.partition_by = partition_by
-        config.partition_filters = partition_filters
-        config.file_options = file_options
-        config.max_partitions = max_partitions
-        config.max_open_files = max_open_files
-        config.max_rows_per_file = max_rows_per_file
-        config.max_rows_per_group = max_rows_per_group
-        config.min_rows_per_group = min_rows_per_group
-        config.name = name
-        config.description = description
-        config.configuration = metadata_configuration
-        config.overwrite_schema = overwrite_schema
-        config.storage_options = storage_options
-        config.engine = engine
-        config.large_dtypes = large_dtypes
-        config.writer_properties = writer_properties
-        config.predicate = predicate
-        config.target_file_size = target_file_size
+        config = DeltaWriteConfig(
+            schema=schema,
+            partition_cols=partition_cols,
+            partition_by=partition_by,
+            partition_filters=partition_filters,
+            file_options=file_options,
+            max_partitions=max_partitions,
+            max_open_files=max_open_files,
+            max_rows_per_file=max_rows_per_file,
+            max_rows_per_group=max_rows_per_group,
+            min_rows_per_group=min_rows_per_group,
+            name=name,
+            description=description,
+            configuration=metadata_configuration,
+            overwrite_schema=overwrite_schema,
+            storage_options=storage_options,
+            engine=engine,
+            large_dtypes=large_dtypes,
+            writer_properties=writer_properties,
+            predicate=predicate,
+            target_file_size=target_file_size,
+            commit_properties=commit_properties,
+            post_commithook_properties=post_commithook_properties,
+        )
 
         return self.write_datasink(
             DeltaDatasink(

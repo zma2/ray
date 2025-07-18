@@ -4,6 +4,11 @@ import uuid
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
+from deltalake import (
+    WriterProperties,
+    CommitProperties,
+    PostCommitHookProperties,
+)
 from enum import Enum
 from pathlib import Path
 from typing import (
@@ -33,6 +38,7 @@ from ray.data._internal.execution.interfaces import TaskContext
 from ray.data._internal.util import _check_import
 from ray.data.block import Block, BlockAccessor
 from ray.data.datasource.file_datasink import _FileDatasink
+
 
 logger = logging.getLogger(__name__)
 
@@ -133,81 +139,51 @@ def try_get_deltatable(
 class DeltaWriteConfig:
     """
     Configuration object for writing data to a DeltaTable.
+    All parameters default to None unless specified.
     """
 
-    def __init__(self):
-        from deltalake import WriterProperties
+    # --- Required for file/block writing ---
+    schema: Optional[pa.Schema] = None
 
-        # --- Schema ---
-        # Partition columns (alias of partition_by).
-        self.schema: Optional[pa.Schema] = None
+    # --- Partitioning ---
+    partition_cols: Optional[List[str]] = None
+    partition_by: Optional[Union[List[str], str]] = None
+    partition_filters: Optional[List[Tuple[str, str, Any]]] = None
 
-        # --- Partitioning ---
-        # Partition columns (alias of partition_by).
-        self.partition_cols: Optional[List[str]] = None
+    # --- File writing options ---
+    file_options: Optional[Any] = None  # e.g. ParquetFileWriteOptions
+    max_partitions: Optional[int] = None
+    max_open_files: int = 1024
+    max_rows_per_file: int = 10 * 1024 * 1024
+    max_rows_per_group: int = 128 * 1024
+    min_rows_per_group: int = 64 * 1024
 
-        # List of partition columns. Only required when creating a new table.
-        self.partition_by: Optional[Union[List[str], str]] = None
+    # --- Table (delta metadata) ---
+    name: Optional[str] = None
+    description: Optional[str] = None
+    configuration: Optional[Mapping[str, Optional[str]]] = None
 
-        # Partition filters for partition overwrite. Only used in pyarrow engine.
-        self.partition_filters: Optional[List[Tuple[str, str, Any]]] = None
+    # --- Schema/overwrite ---
+    overwrite_schema: bool = (
+        False  # When used, mapped to schema_mode='overwrite' in new API
+    )
 
-        # --- File writing options ---
-        # Optional file (Parquet) write options, such as ParquetFileWriteOptions.
-        self.file_options: Optional[Any] = None
+    # --- Storage/engine ---
+    storage_options: Optional[Dict[str, str]] = None
+    engine: Literal["pyarrow", "rust"] = "rust"
+    large_dtypes: bool = False
+    writer_properties: Optional[WriterProperties] = None  # Native Delta/WritersOptions
+    predicate: Optional[str] = None  # Overwrite predicate
+    target_file_size: Optional[int] = None
 
-        # Maximum number of partitions to use. Only used in pyarrow engine.
-        self.max_partitions: Optional[int] = None
-
-        # Limits the maximum number of files that can be left open while writing.
-        self.max_open_files: int = 1024
-
-        # Maximum number of rows per file. 0 or less means no limit.
-        self.max_rows_per_file: int = 10 * 1024 * 1024
-
-        # Maximum number of rows per group.
-        self.max_rows_per_group: int = 128 * 1024
-
-        # Minimum number of rows per group. When the value is set, the dataset writer will batch incoming data
-        # and only write the row groups to the disk when sufficient rows have accumulated.
-        self.min_rows_per_group = 64 * 1024
-
-        # --- Table and metadata ---
-        # User-provided identifier for this table.
-        self.name: Optional[str] = None
-
-        # User-provided description for this table.
-        self.description: Optional[str] = None
-
-        # Metadata action configuration map.
-        self.configuration: Optional[Mapping[str, Optional[str]]] = None
-
-        # (Legacy) If True, overwrite existing schema.
-        self.overwrite_schema: bool = False
-
-        # --- Storage and engine options ---
-        # Options passed to the native delta filesystem.
-        self.storage_options: Optional[Dict[str, str]] = None
-
-        # Writer engine to use. Pyarrow is deprecated.
-        self.engine: Literal["pyarrow", "rust"] = "rust"
-
-        # Only used for pyarrow engine.
-        self.large_dtypes: bool = False
-
-        # Writer properties for the Rust parquet writer.
-        self.writer_properties: Optional[WriterProperties] = None
-
-        # When in overwrite mode, replace data matching this predicate (rust engine only).
-        self.predicate: Optional[str] = None
-
-        # Override for target file size for data files written to the delta table.
-        self.target_file_size: Optional[int] = None
+    # --- Commit & transaction ---
+    commit_properties: Optional[CommitProperties] = None
+    post_commithook_properties: Optional[PostCommitHookProperties] = None
 
     @classmethod
     def from_dict(cls, config_dict: dict):
         """
-        Create a DeltaWriteConfig from a dictionary. Only sets attributes known to this config class.
+        Create a DeltaWriteConfig from a dictionary. Only sets attributes present in the class.
         """
         obj = cls()
         for key, val in config_dict.items():
@@ -777,61 +753,65 @@ class DeltaDatasink(_FileDatasink):
         return DeltaSinkWriteResult(actions=final_add_actions, schema=self.schema)
 
     def on_write_complete(self, write_result):
-        from deltalake._internal import write_new_deltalake as _write_new_deltalake
+        from deltalake import write_deltalake
 
+        # Defensive: update self.schema from the write result if available
         self.schema = self._get_schema(write_result)
 
-        # For append and overwrite modes, we need to update the Delta table with the new actions
-        if (self.mode == WriteMode.APPEND.value) or (
-            self.mode == WriteMode.OVERWRITE.value
-        ):
-            final_add_actions = []
+        # Only append/overwrite supported, else error
+        if self.mode not in [WriteMode.APPEND.value, WriteMode.OVERWRITE.value]:
+            raise NotImplementedError(
+                "Only append/overwrite modes are supported with the new API."
+            )
+
+        # Collect AddActions into a flat list
+        final_add_actions = []
+        if hasattr(write_result, "write_returns"):  # Ray distributed result style
             for result in write_result.write_returns:
                 final_add_actions.extend(result.actions)
+        elif hasattr(write_result, "actions"):
+            final_add_actions.extend(write_result.actions)
+        if len(final_add_actions) == 0:
+            return  # Nothing to flush
 
-            if len(final_add_actions) == 0:
-                return
+        # Table may or may not exist: Both valid for write_deltalake
+        table, table_uri = self._get_table_and_table_uri(
+            self.path, self.storage_options
+        )
 
-            table, table_uri = self._get_table_and_table_uri(
-                self.path, self.storage_options
-            )
-            if table is None:
-                # Create a new table if it doesn't exist
-                _write_new_deltalake(
-                    table_uri=table_uri,
-                    schema=self.schema,
-                    data=final_add_actions,
-                    mode=self.mode,
-                    file_options=self.config.file_options,
-                    partition_by=self.config.partition_by,
-                    max_partitions=self.config.max_partitions,
-                    partition_filters=self.config.partition_filters,
-                    configuration=self.config.configuration,
-                    overwrite_schema=self.config.overwrite_schema,
-                    storage_options=self.storage_options,
-                    engine=self.config.engine,
-                    large_dtypes=self.config.large_dtypes,
-                    writer_properties=self.config.writer_properties,
-                    predicate=self.config.predicate,
-                    target_file_size=self.config.target_file_size,
-                    max_open_files=self.config.max_open_files,
-                    max_rows_per_file=self.config.max_rows_per_file,
-                    min_rows_per_group=self.config.min_rows_per_group,
-                    max_rows_per_group=self.config.max_rows_per_group,
-                    name=self.config.name,
-                    description=self.config.description,
-                    partition_cols=self.partition_cols,
-                )
-            else:
-                # Update the table with the new actions, prevents conflicts with other writes
-                table.update_incremental()
-                table._table.create_write_transaction(
-                    final_add_actions,
-                    self.mode,
-                    self.partition_cols or [],
-                    self.schema,
-                    self.config.partition_filters,
-                )
-            return write_result
-        else:
-            raise NotImplementedError("Merge write is not supported yet.")
+        # Map overwrite_schema to schema_mode string for new API
+        schema_mode = None
+        if (
+            getattr(self.config, "overwrite_schema", False)
+            and self.mode == WriteMode.OVERWRITE.value
+        ):
+            schema_mode = "overwrite"
+
+        # Set up commit properties and post commit hook properties if present on config
+        commit_properties = getattr(self.config, "commit_properties", None)
+        post_commithook_properties = getattr(
+            self.config, "post_commithook_properties", None
+        )
+
+        # Partition argument: config wins, else use autodetected
+        partition_by = self.config.partition_by or self.partition_cols
+
+        # Actually write to Delta using new API
+        write_deltalake(
+            table_or_uri=table_uri,
+            data=final_add_actions,
+            partition_by=partition_by,
+            mode=self.mode,
+            name=self.config.name,
+            description=self.config.description,
+            configuration=self.config.configuration,
+            schema_mode=schema_mode,
+            storage_options=self.storage_options,
+            predicate=self.config.predicate,
+            target_file_size=self.config.target_file_size,
+            writer_properties=self.config.writer_properties,
+            post_commithook_properties=post_commithook_properties,
+            commit_properties=commit_properties,
+        )
+
+        return write_result
