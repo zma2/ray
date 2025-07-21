@@ -44,6 +44,10 @@ from ray.data._internal.datasource.csv_datasink import CSVDatasink
 from ray.data._internal.datasource.delta_datasink import (
     DeltaDatasink,
     DeltaWriteConfig,
+    SCDConfig,
+    MergeConfig,
+    MergeConditions,
+    OptimizationConfig,
     WriteMode,
 )
 from ray.data._internal.datasource.iceberg_datasink import IcebergDatasink
@@ -3386,12 +3390,18 @@ class Dataset:
         partition_cols: Optional[List[str]] = None,
         partition_by: Optional[Union[List[str], str]] = None,
         partition_filters: Optional[List[Tuple[str, str, Any]]] = None,
+        filesystem: Optional["pa_fs.FileSystem"] = None,
+        try_create_dir: bool = True,
+        open_stream_args: Optional[Dict[str, Any]] = None,
+        filename_provider: Optional[Any] = None,
         file_options: Optional[Any] = None,
         max_partitions: Optional[int] = None,
         max_open_files: int = 1024,
         max_rows_per_file: int = 10 * 1024 * 1024,
         max_rows_per_group: int = 128 * 1024,
         min_rows_per_group: int = 64 * 1024,
+        ray_remote_args: Optional[Dict[str, Any]] = None,
+        concurrency: Optional[int] = None,
         name: Optional[str] = None,
         description: Optional[str] = None,
         metadata_configuration: Optional[Mapping[str, Optional[str]]] = None,
@@ -3402,52 +3412,372 @@ class Dataset:
         writer_properties: Optional[Any] = None,
         predicate: Optional[str] = None,
         target_file_size: Optional[int] = None,
-        try_create_dir: bool = True,
-        open_stream_args: Optional[Dict[str, Any]] = None,
-        filename_provider: Optional[Any] = None,
-        filesystem: Optional["pa_fs.FileSystem"] = None,
-        ray_remote_args: Optional[Dict[str, Any]] = None,
-        concurrency: Optional[int] = None,
         commit_properties: Optional[Any] = None,
         post_commithook_properties: Optional[Any] = None,
+        merge_config: Optional[MergeConfig] = None,
+        merge_conditions: Optional[MergeConditions] = None,
+        scd_config: Optional[SCDConfig] = None,
+        scd_type: Optional[int] = None,
+        key_columns: Optional[List[str]] = None,
+        target_columns: Optional[List[str]] = None,
+        optimization_config: Optional[OptimizationConfig] = None,
+        enable_optimization: bool = False,
+        upsert_condition: Optional[str] = None,
+        insert_condition: Optional[str] = None,
+        update_condition: Optional[str] = None,
+        delete_condition: Optional[str] = None,
     ):
         """
         Write this :class:`~ray.data.Dataset` as a Delta Lake table.
 
+        This method provides comprehensive Delta Lake functionality including ACID transactions,
+        schema evolution, time travel, and advanced merge operations with support for
+        Slowly Changing Dimensions (SCD) patterns.
+
         Examples:
-            import ray
-            ds = ray.data.read_parquet("s3://anonymous@ray-example-data/iris.parquet")
-            ds.write_delta("local:///tmp/iris_delta")
+            Basic append write:
+
+            >>> import ray
+            >>> ds = ray.data.range(100)
+            >>> ds.write_delta("local:///tmp/data/")
+
+            Overwrite with partitioning:
+
+            >>> import pandas as pd
+            >>> df = pd.DataFrame({
+            ...     "id": range(1000),
+            ...     "value": range(1000, 2000),
+            ...     "category": ["A", "B"] * 500
+            ... })
+            >>> ds = ray.data.from_pandas(df)
+            >>> ds.write_delta(
+            ...     "s3://my-bucket/partitioned-table/",
+            ...     mode="overwrite",
+            ...     partition_cols=["category"],
+            ...     storage_options={"AWS_REGION": "us-west-2"}
+            ... )
+
+            SCD Type 1 (Overwrite Changes):
+
+            >>> # Initial data
+            >>> initial_data = pd.DataFrame({
+            ...     "customer_id": [1, 2, 3],
+            ...     "name": ["Alice", "Bob", "Charlie"],
+            ...     "email": ["alice@old.com", "bob@old.com", "charlie@old.com"]
+            ... })
+            >>> ray.data.from_pandas(initial_data).write_delta(
+            ...     "local:///tmp/customers", mode="overwrite"
+            ... )
+            >>>
+            >>> # Update with SCD Type 1 (overwrites existing records)
+            >>> update_data = pd.DataFrame({
+            ...     "customer_id": [1, 2, 4],  # Update 1,2 and insert 4
+            ...     "name": ["Alice Updated", "Bob Updated", "David"],
+            ...     "email": ["alice@new.com", "bob@new.com", "david@new.com"]
+            ... })
+            >>> ray.data.from_pandas(update_data).write_delta(
+            ...     "local:///tmp/customers",
+            ...     mode="merge",
+            ...     scd_type=1,
+            ...     key_columns=["customer_id"]
+            ... )
+
+            SCD Type 2 (Preserve History with Versioning):
+
+            >>> ray.data.from_pandas(update_data).write_delta(
+            ...     "local:///tmp/customers_scd2",
+            ...     mode="merge",
+            ...     scd_type=2,
+            ...     key_columns=["customer_id"],
+            ...     # SCD Type 2 automatically adds version, is_current, start_time, end_time
+            ... )
+
+            SCD Type 3 (Store Previous Values):
+
+            >>> ray.data.from_pandas(update_data).write_delta(
+            ...     "local:///tmp/customers_scd3",
+            ...     mode="merge",
+            ...     scd_type=3,
+            ...     key_columns=["customer_id"],
+            ...     # SCD Type 3 automatically adds _previous suffix columns
+            ... )
+
+            Advanced Merge with conditions:
+
+            >>> from ray.data._internal.datasource.delta_datasink import MergeConditions
+            >>> conditions = MergeConditions(
+            ...     merge_predicate="target.customer_id = source.customer_id",
+            ...     when_matched_update_condition="target.email != source.email",
+            ...     when_matched_update_set={
+            ...         "name": "source.name",
+            ...         "email": "source.email",
+            ...         "last_updated": "current_timestamp()"
+            ...     },
+            ...     when_not_matched_insert_condition="source.email IS NOT NULL",
+            ...     when_not_matched_insert_values={
+            ...         "customer_id": "source.customer_id",
+            ...         "name": "source.name",
+            ...         "email": "source.email",
+            ...         "created_at": "current_timestamp()"
+            ...     }
+            ... )
+            >>> ray.data.from_pandas(update_data).write_delta(
+            ...     "local:///tmp/advanced_merge",
+            ...     mode="merge",
+            ...     merge_conditions=conditions
+            ... )
+
+            Simple upsert (insert or update):
+
+            >>> ray.data.from_pandas(update_data).write_delta(
+            ...     "local:///tmp/simple_upsert",
+            ...     mode="merge",
+            ...     upsert_condition="target.customer_id = source.customer_id"
+            ... )
+
+            Write with optimization enabled:
+
+            >>> ray.data.from_pandas(df).write_delta(
+            ...     "local:///tmp/optimized_table",
+            ...     mode="overwrite",
+            ...     enable_optimization=True,
+            ...     optimization_config=OptimizationConfig(
+            ...         enable_compaction=True,
+            ...         enable_z_order=True,
+            ...         z_order_columns=["id", "category"],
+            ...         enable_vacuum=True,
+            ...         vacuum_retention_hours=168  # 7 days
+            ...     )
+            ... )
+
+        Time complexity: O(dataset size / parallelism)
 
         Args:
-            path: Path or URI of the target Delta table.
-            schema: PyArrow schema to write, or None to infer.
-            mode: Write mode. One of "error", "append" (default), "overwrite", "ignore".
-            partition_cols: List of column names to partition the table by (alias of partition_by).
-            partition_by: Alternative way to specify partition columns as list or comma-separated string.
-            partition_filters: Partition overwrite filters (pyarrow engine only).
-            file_options: Custom file (Parquet) write options.
-            max_partitions: Max number of partitions (pyarrow only).
-            max_open_files: Max files left open while writing.
-            max_rows_per_file: Max number of rows per output file (0 disables).
-            max_rows_per_group: Max number of rows per group.
-            min_rows_per_group: Min number of rows per group before writing (for batch).
-            name: Optional identifier for this table.
-            description: User-provided table description.
-            metadata_configuration: Custom metadata configuration map (for advanced users).
-            overwrite_schema: If True, existing schema is overwritten if incompatible.
-            storage_options: Delta filesystem options (native Delta).
-            engine: Writer engine, one of "pyarrow" or "rust" (default "rust").
-            large_dtypes: PyArrow-only. Support for large data types.
-            writer_properties: Parquet writer properties (rust engine).
-            predicate: Predicate for overwrite mode (rust only).
-            target_file_size: Target file size override, in bytes.
-            try_create_dir: If True, create the target directory if needed.
-            open_stream_args: Output stream configuration, e.g. for S3/Azure.
-            filename_provider: Custom filename provider callable.
-            filesystem: PyArrow filesystem object.
-            ray_remote_args: Advanced Ray remote task options.
-            concurrency: Desired Ray write-parallelism.
+            path: Path or URI of the target Delta table. Supports local filesystem
+                (``file://`` or ``local://``), S3 (``s3://``), Azure (``abfss://``),
+                and GCS (``gs://``). For cloud storage, ensure appropriate credentials
+                are configured.
+
+            schema: PyArrow schema to use for the table. If ``None``, schema is inferred
+                from the dataset. Use this to enforce specific data types or add metadata.
+
+            mode: Write mode determining how to handle existing data. Options:
+
+                * ``"append"`` (default): Add new data to existing table
+                * ``"overwrite"``: Replace entire table contents
+                * ``"error"``: Fail if table already exists
+                * ``"ignore"``: Do nothing if table already exists
+                * ``"merge"``: Perform merge/upsert operation (requires merge configuration)
+
+            partition_cols: List of column names to use for Hive-style partitioning.
+                Creates subdirectories like ``year=2023/month=01/``. Improves query
+                performance for filtered reads. Example: ``["year", "month", "day"]``
+
+            partition_by: Alternative to ``partition_cols``. Can be a list of columns
+                or a comma-separated string. Example: ``"year,month"`` or ``["year", "month"]``
+
+            partition_filters: List of tuples for partition-level filtering during
+                overwrite operations. Only used with PyArrow engine. Format:
+                ``[("column", "op", value)]`` where op is one of ``"=", "!=", "<", ">", "<=", ">=", "in", "not in"``
+
+            filesystem: PyArrow filesystem implementation. If ``None``, automatically
+                detected from path scheme. Useful for custom S3 configurations:
+
+                .. code-block:: python
+
+                    import pyarrow.fs as fs
+                    s3_fs = fs.S3FileSystem(
+                        access_key="...", secret_key="...", region="us-west-2"
+                    )
+                    ds.write_delta("s3://bucket/table", filesystem=s3_fs)
+
+            try_create_dir: If ``True`` (default), create target directory if it doesn't
+                exist. Set to ``False`` for strict validation of existing paths.
+
+            open_stream_args: Dictionary of arguments passed to the filesystem's
+                ``open_output_stream`` method. Useful for cloud storage settings:
+
+                .. code-block:: python
+
+                    # S3 server-side encryption
+                    open_stream_args = {
+                        "metadata": {"ServerSideEncryption": "AES256"}
+                    }
+
+            filename_provider: Custom filename provider implementing the
+                :class:`~ray.data.datasource.FilenameProvider` interface. Controls
+                the naming pattern of output files.
+
+            file_options: Dictionary of Parquet file writing options passed to the
+                underlying writer. Example: ``{"compression": "snappy", "use_dictionary": True}``
+
+            max_partitions: Maximum number of partitions to create (PyArrow engine only).
+                Helps control the number of output files.
+
+            max_open_files: Maximum number of files to keep open simultaneously during
+                writing. Increase for better performance with many partitions, but
+                be mindful of system limits. Default: ``1024``
+
+            max_rows_per_file: Maximum number of rows per output file. When reached,
+                a new file is created. Set to ``0`` to disable. Large values reduce
+                the number of small files. Default: ``10,485,760`` (10M rows)
+
+            max_rows_per_group: Maximum number of rows per Parquet row group within
+                a file. Affects compression and query performance. Default: ``131,072`` (128K rows)
+
+            min_rows_per_group: Minimum number of rows to accumulate before writing
+                a row group in batch mode. Default: ``65,536`` (64K rows)
+
+            ray_remote_args: Dictionary of arguments passed to ``ray.remote()`` for
+                write tasks. Use to control resources:
+
+                .. code-block:: python
+
+                    ray_remote_args = {
+                        "num_cpus": 2,
+                        "memory": 4 * 1024**3,  # 4GB
+                        "resources": {"custom_resource": 1}
+                    }
+
+            concurrency: Maximum number of Ray tasks to run concurrently. Controls
+                parallelism vs resource usage. If ``None``, Ray determines automatically
+                based on cluster resources.
+
+            name: Optional table name/identifier for metadata and logging purposes.
+
+            description: Human-readable description of the table contents and purpose.
+                Stored in table metadata.
+
+            metadata_configuration: Dictionary of custom metadata key-value pairs
+                to store with the table. Example: ``{"owner": "data-team", "version": "v2"}``
+
+            overwrite_schema: If ``True``, allows overwriting table schema if incompatible.
+                If ``False`` (default), raises error on schema mismatch.
+
+            storage_options: Dictionary of filesystem-specific options. Common options:
+
+                * S3: ``{"AWS_REGION": "us-west-2", "AWS_S3_ALLOW_UNSAFE_RENAME": "true"}``
+                * Azure: ``{"AZURE_STORAGE_ACCOUNT_NAME": "...", "AZURE_STORAGE_ACCOUNT_KEY": "..."}``
+                * GCS: ``{"GOOGLE_SERVICE_ACCOUNT": "/path/to/key.json"}``
+
+            engine: Delta writer engine. Options:
+
+                * ``"rust"`` (default): High-performance Rust implementation
+                * ``"pyarrow"``: Python implementation, more compatible but slower
+
+            large_dtypes: PyArrow-only option. If ``True``, use 64-bit offsets for
+                large binary/string arrays. Required for very large string columns.
+
+            writer_properties: Parquet writer properties for Rust engine. Use to
+                control compression, encoding, etc. See deltalake documentation.
+
+            predicate: SQL-like predicate for filtering during overwrite operations
+                (Rust engine only). Example: ``"year >= 2023 AND status = 'active'"``
+
+            target_file_size: Target size in bytes for output files. Writer attempts
+                to create files close to this size. Helps control file granularity.
+
+            commit_properties: Dictionary of properties to include in the Delta
+                transaction log commit. Example: ``{"engineInfo": "Ray Data", "operation": "WRITE"}``
+
+            post_commithook_properties: Properties for post-commit hooks if configured
+                on the table.
+
+            merge_config: Complete merge configuration object for advanced merge
+                operations. Provides full control over merge behavior:
+
+                .. code-block:: python
+
+                    from ray.data._internal.datasource.delta_datasink import MergeConfig
+                    config = MergeConfig(
+                        merge_predicate="target.id = source.id",
+                        when_matched_update_condition="target.status != source.status",
+                        when_not_matched_insert_condition="source.active = true",
+                        target_columns=["name", "email", "status"]
+                    )
+
+            merge_conditions: Databricks-style merge conditions object providing
+                granular control over merge operations with support for multiple
+                match/no-match scenarios.
+
+            scd_config: Complete SCD configuration object for advanced Slowly
+                Changing Dimension operations:
+
+                .. code-block:: python
+
+                    from ray.data._internal.datasource.delta_datasink import SCDConfig
+                    config = SCDConfig(
+                        scd_type=2,
+                        key_columns=["customer_id"],
+                        version_column="version",
+                        current_flag_column="is_current",
+                        start_time_column="valid_from",
+                        end_time_column="valid_to"
+                    )
+
+            scd_type: Convenience parameter for Slowly Changing Dimensions. Options:
+
+                * ``1``: Type 1 - Overwrite existing records (no history)
+                * ``2``: Type 2 - Preserve history with versioning and current flags
+                * ``3``: Type 3 - Store previous values in separate columns
+
+                When specified, automatically configures appropriate merge logic.
+
+            key_columns: List of business key columns used for matching records in
+                merge operations and SCD processing. Required when using ``scd_type``
+                or merge operations. Example: ``["customer_id", "product_id"]``
+
+            target_columns: List of columns to update during merge operations. If
+                ``None``, all source columns are used. Useful for partial updates:
+                ``["name", "email", "last_modified"]``
+
+            optimization_config: Configuration object controlling table optimization:
+
+                .. code-block:: python
+
+                    from ray.data._internal.datasource.delta_datasink import OptimizationConfig
+                    config = OptimizationConfig(
+                        enable_compaction=True,
+                        enable_z_order=True,
+                        z_order_columns=["id", "timestamp"],
+                        enable_vacuum=True,
+                        vacuum_retention_hours=168
+                    )
+
+            enable_optimization: If ``True``, automatically optimize the table after
+                writing using the provided ``optimization_config`` or defaults.
+
+            upsert_condition: Simple upsert condition for basic merge operations.
+                SQL-like predicate defining how to match source and target records.
+                Example: ``"target.id = source.id"``
+
+            insert_condition: Condition determining when to insert unmatched source
+                records. Example: ``"source.active = true"``
+
+            update_condition: Condition determining when to update matched records.
+                Example: ``"target.last_modified < source.last_modified"``
+
+            delete_condition: Condition determining when to delete matched target
+                records. Example: ``"source.status = 'deleted'"``
+
+        Raises:
+            ValueError: If invalid parameters are provided or required parameters
+                are missing for merge operations.
+            TypeError: If parameters have incorrect types.
+            FileNotFoundError: If path doesn't exist and ``try_create_dir`` is ``False``.
+            PermissionError: If insufficient permissions for the target path.
+            SchemaError: If schema is incompatible and ``overwrite_schema`` is ``False``.
+
+        Note:
+            * For merge operations (``mode="merge"``), at least one of ``merge_config``,
+              ``merge_conditions``, ``scd_config``, ``scd_type``, or ``upsert_condition``
+              must be provided.
+            * SCD operations automatically handle schema evolution by adding required
+              columns (version, current flags, timestamps, previous value columns).
+            * Cloud storage paths require appropriate authentication credentials to
+              be configured in the environment.
+            * The operation is ACID compliant - either all data is written successfully
+              or no changes are made to the target table.
 
         """
         config = DeltaWriteConfig(
@@ -3475,16 +3805,30 @@ class Dataset:
             post_commithook_properties=post_commithook_properties,
         )
 
-        return self.write_datasink(
-            DeltaDatasink(
-                path=path,
-                mode=mode,
-                delta_config=config,
-                try_create_dir=try_create_dir,
-                open_stream_args=open_stream_args,
-                filename_provider=filename_provider,
-                filesystem=filesystem,
-            ),
+        datasink = DeltaDatasink(
+            path=path,
+            mode=mode,
+            delta_config=config,
+            try_create_dir=try_create_dir,
+            open_stream_args=open_stream_args,
+            filename_provider=filename_provider,
+            filesystem=filesystem,
+            merge_config=merge_config,
+            merge_conditions=merge_conditions,
+            scd_config=scd_config,
+            scd_type=scd_type,
+            key_columns=key_columns,
+            target_columns=target_columns,
+            optimization_config=optimization_config,
+            enable_optimization=enable_optimization,
+            upsert_condition=upsert_condition,
+            insert_condition=insert_condition,
+            update_condition=update_condition,
+            delete_condition=delete_condition,
+        )
+
+        self.write_datasink(
+            datasink,
             ray_remote_args=ray_remote_args,
             concurrency=concurrency,
         )
