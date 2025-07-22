@@ -23,7 +23,6 @@ from typing import (
 )
 
 import numpy as np
-import pyarrow as pa
 
 import ray
 import ray.cloudpickle as pickle
@@ -44,11 +43,9 @@ from ray.data._internal.datasource.csv_datasink import CSVDatasink
 from ray.data._internal.datasource.delta import (
     DeltaDatasink,
     DeltaWriteConfig,
-    MergeConditions,
     MergeConfig,
     OptimizationConfig,
     SCDConfig,
-    WriteMode,
 )
 from ray.data._internal.datasource.iceberg_datasink import IcebergDatasink
 from ray.data._internal.datasource.image_datasink import ImageDatasink
@@ -3513,15 +3510,6 @@ class Dataset:
             performed on this dataset. For merge operations, either ``merge_predicate``
             or ``scd_type`` is required.
         """
-        # Import here to avoid circular imports
-        from ray.data._internal.datasource.delta import (
-            DeltaDatasink,
-            DeltaWriteConfig,
-            MergeConfig,
-            SCDConfig,
-            OptimizationConfig,
-        )
-
         # Build merge configuration from simplified parameters
         merge_config = None
         if mode == "merge":

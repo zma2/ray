@@ -6,7 +6,7 @@ compaction, Z-order optimization, and vacuum operations.
 """
 
 import logging
-from typing import Dict, Optional
+from typing import Any,Dict, Optional
 
 from deltalake import DeltaTable
 

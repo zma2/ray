@@ -18,10 +18,6 @@ import pyarrow.fs as pa_fs
 
 from deltalake.transaction import AddAction as DeltaAddAction
 
-from ray.data._internal.execution.interfaces import TaskContext
-from ray.data._internal.util import _check_import
-from ray.data.block import Block, BlockAccessor
-from ray.data.datasource.file_datasink import _FileDatasink
 
 from ray.data._internal.datasource.delta.config import (
     DeltaSinkWriteResult,
@@ -37,6 +33,11 @@ from ray.data._internal.datasource.delta.utilities import (
     GCPUtilities,
     try_get_deltatable,
 )
+
+from ray.data._internal.execution.interfaces import TaskContext
+from ray.data._internal.util import _check_import
+from ray.data.block import Block, BlockAccessor
+from ray.data.datasource.file_datasink import _FileDatasink
 
 logger = logging.getLogger(__name__)
 

@@ -9,7 +9,6 @@ from datetime import datetime, timedelta
 from typing import List
 
 import pandas as pd
-import pyarrow as pa
 import pytest
 
 # Try to import pytest_lazy_fixtures, but handle gracefully if missing
@@ -23,7 +22,6 @@ except ImportError:
 
 
 import ray
-from ray.data import Schema
 from ray.data._internal.datasource.delta import (
     MergeConditions,
     MergeConfig,
