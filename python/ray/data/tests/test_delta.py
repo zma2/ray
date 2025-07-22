@@ -1,51 +1,44 @@
+import os
+import shutil
 import sys
 import tempfile
-import shutil
 import time
 import uuid
-import hashlib
-import warnings
-from datetime import datetime, timedelta
-from typing import List, Optional
 from contextlib import contextmanager
+from datetime import datetime, timedelta
+from typing import List
 
-import pyarrow as pa
 import pandas as pd
+import pyarrow as pa
 import pytest
 
 # Try to import pytest_lazy_fixtures, but handle gracefully if missing
 try:
     from pytest_lazy_fixtures import lf as lazy_fixture
+
     LAZY_FIXTURES_AVAILABLE = True
 except ImportError:
     LAZY_FIXTURES_AVAILABLE = False
     lazy_fixture = None
 
-# Add the Ray source path to allow imports
-ray_python_path = '/home/ray/default_cld_g54aiirwj1s8t9ktgzikqur41k/ray/python'
-if ray_python_path not in sys.path:
-    sys.path.insert(0, ray_python_path)
 
 import ray
 from ray.data import Schema
-from ray.data.datasource.path_util import _unwrap_protocol
-from ray.data._internal.datasource.delta_datasink import (
-    DeltaDatasink,
-    SCDConfig,
-    MergeConfig,
+from ray.data._internal.datasource.delta import (
     MergeConditions,
-    OptimizationConfig,
+    MergeConfig,
     compact_delta_table,
-    z_order_delta_table,
     vacuum_delta_table,
-    MergeMode,
+    z_order_delta_table,
 )
+from ray.data.datasource.path_util import _unwrap_protocol
 
 # Try to import test fixtures, but handle gracefully if they fail
 try:
     from ray.data.tests.conftest import *  # noqa
     from ray.data.tests.mock_http_server import *  # noqa
     from ray.tests.conftest import *  # noqa
+
     TEST_FIXTURES_AVAILABLE = True
 except ImportError:
     TEST_FIXTURES_AVAILABLE = False
@@ -66,9 +59,13 @@ class DeltaTestValidator:
     """Comprehensive validation utilities for Delta Lake tests."""
 
     @staticmethod
-    def validate_data_integrity(df: pd.DataFrame, expected_count: int, id_column: str = "id") -> None:
+    def validate_data_integrity(
+        df: pd.DataFrame, expected_count: int, id_column: str = "id"
+    ) -> None:
         """Validate data integrity with comprehensive checks."""
-        assert len(df) == expected_count, f"Expected {expected_count} rows, got {len(df)}"
+        assert (
+            len(df) == expected_count
+        ), f"Expected {expected_count} rows, got {len(df)}"
 
         if id_column in df.columns:
             # Check for duplicates
@@ -80,26 +77,33 @@ class DeltaTestValidator:
             assert null_keys == 0, f"Found {null_keys} null {id_column} values"
 
     @staticmethod
-    def validate_schema_consistency(df: pd.DataFrame, expected_columns: List[str]) -> None:
+    def validate_schema_consistency(
+        df: pd.DataFrame, expected_columns: List[str]
+    ) -> None:
         """Validate schema consistency."""
         actual_columns = set(df.columns)
         expected_columns = set(expected_columns)
 
         missing_columns = expected_columns - actual_columns
-        extra_columns = actual_columns - expected_columns
 
         assert not missing_columns, f"Missing columns: {missing_columns}"
         # Extra columns are OK for schema evolution tests
 
     @staticmethod
-    def validate_performance_metrics(operation_time: float, record_count: int, min_throughput: int = 1000) -> None:
+    def validate_performance_metrics(
+        operation_time: float, record_count: int, min_throughput: int = 1000
+    ) -> None:
         """Validate performance meets minimum thresholds."""
         if operation_time > 0:
             throughput = record_count / operation_time
-            assert throughput >= min_throughput, f"Throughput {throughput:.0f} records/sec below minimum {min_throughput}"
+            assert (
+                throughput >= min_throughput
+            ), f"Throughput {throughput:.0f} records/sec below minimum {min_throughput}"
 
     @staticmethod
-    def create_test_data(size: int = 100, include_nulls: bool = True, include_unicode: bool = True) -> pd.DataFrame:
+    def create_test_data(
+        size: int = 100, include_nulls: bool = True, include_unicode: bool = True
+    ) -> pd.DataFrame:
         """Create comprehensive test data with various data types."""
         data = {
             "id": range(1, size + 1),
@@ -112,7 +116,9 @@ class DeltaTestValidator:
 
         if include_nulls:
             data["nullable_int"] = [i if i % 10 != 0 else None for i in range(size)]
-            data["nullable_str"] = [f"Nullable_{i}" if i % 5 != 0 else None for i in range(size)]
+            data["nullable_str"] = [
+                f"Nullable_{i}" if i % 5 != 0 else None for i in range(size)
+            ]
 
         if include_unicode:
             data["unicode_col"] = [
@@ -132,7 +138,7 @@ def _robust_test_cleanup(temp_dir: str, test_name: str) -> None:
         try:
             if os.path.exists(temp_dir):
                 try:
-                    contents = os.listdir(temp_dir)
+                    os.listdir(temp_dir)
                 except OSError:
                     return
 
@@ -141,7 +147,7 @@ def _robust_test_cleanup(temp_dir: str, test_name: str) -> None:
             else:
                 return
 
-        except OSError as cleanup_error:
+        except OSError:
             cleanup_attempts += 1
 
             if cleanup_attempts < max_cleanup_attempts:
@@ -149,27 +155,32 @@ def _robust_test_cleanup(temp_dir: str, test_name: str) -> None:
             else:
                 pass  # Give up after max attempts
 
-        except Exception as unexpected_error:
+        except Exception:
             return
 
 
 @contextmanager
-def delta_test_context(test_name: str):
+def delta_test_context(test_name: str, base_path: str = None):
     """Context manager for Delta tests with proper setup and cleanup."""
     temp_name = f"test_delta_{test_name}_{uuid.uuid4().hex[:8]}"
-    temp_dir = f"/mnt/cluster_storage/{temp_name}"
+
+    if base_path is None:
+        # Use system temporary directory as fallback
+        temp_dir = tempfile.mkdtemp(prefix=temp_name)
+    else:
+        temp_dir = os.path.join(base_path, temp_name)
 
     try:
         os.makedirs(temp_dir, exist_ok=True)
         yield temp_dir
-    except Exception as e:
+    except Exception:
         # Add context for debugging
         try:
             if os.path.exists(temp_dir):
-                contents = os.listdir(temp_dir)
+                os.listdir(temp_dir)
             else:
                 pass
-        except Exception as inspect_error:
+        except Exception:
             pass
         raise
     finally:
@@ -201,13 +212,15 @@ def test_delta_read_basic(data_path, batch_size, write_mode):
     path = os.path.join(setup_data_path, "tmp_test_delta")
 
     # Create a sample Delta Lake table with comprehensive data types
-    df = pd.DataFrame({
-        "x": [42] * batch_size,
-        "y": ["a"] * batch_size,
-        "z": [3.14] * batch_size,
-        "bool_col": [True] * batch_size,
-        "timestamp_col": [datetime.now()] * batch_size
-    })
+    df = pd.DataFrame(
+        {
+            "x": [42] * batch_size,
+            "y": ["a"] * batch_size,
+            "z": [3.14] * batch_size,
+            "bool_col": [True] * batch_size,
+            "timestamp_col": [datetime.now()] * batch_size,
+        }
+    )
 
     start_time = time.time()
     if write_mode == "append":
@@ -217,7 +230,6 @@ def test_delta_read_basic(data_path, batch_size, write_mode):
     elif write_mode == "overwrite":
         write_deltalake(path, df, mode=write_mode)
         expected_count = batch_size
-    write_time = time.time() - start_time
 
     # Read the Delta Lake table
     start_time = time.time()
@@ -226,18 +238,11 @@ def test_delta_read_basic(data_path, batch_size, write_mode):
 
     # Comprehensive validation
     actual_count = ds.count()
-    assert actual_count == expected_count, f"Expected {expected_count} rows, got {actual_count}"
+    assert (
+        actual_count == expected_count
+    ), f"Expected {expected_count} rows, got {actual_count}"
 
     # Schema validation
-    expected_schema = Schema(
-        pa.schema({
-            "x": pa.int64(),
-            "y": pa.string(),
-            "z": pa.float64(),
-            "bool_col": pa.bool_(),
-            "timestamp_col": pa.timestamp('us')
-        })
-    )
 
     # Validate core columns exist
     assert "x" in ds.schema().names
@@ -256,11 +261,15 @@ def test_delta_read_basic(data_path, batch_size, write_mode):
         all_rows = ds.take_all()
         df_result = pd.DataFrame(all_rows)
         DeltaTestValidator.validate_data_integrity(df_result, expected_count, "x")
-        DeltaTestValidator.validate_schema_consistency(df_result, ["x", "y", "z", "bool_col"])
+        DeltaTestValidator.validate_schema_consistency(
+            df_result, ["x", "y", "z", "bool_col"]
+        )
 
         # Performance validation (relaxed for small datasets)
         if expected_count >= 100:
-            DeltaTestValidator.validate_performance_metrics(read_time, expected_count, 500)
+            DeltaTestValidator.validate_performance_metrics(
+                read_time, expected_count, 500
+            )
 
     assert ds.schema().names == ["x", "y", "z", "bool_col", "timestamp_col"]
 
@@ -291,16 +300,22 @@ def test_delta_write_partitioned(data_path, batch_size, write_mode):
     partition_data = ["GroupA" if i % 2 == 0 else "GroupB" for i in range(batch_size)]
     year_data = [2023 if i % 3 == 0 else 2024 for i in range(batch_size)]
 
-    df = pd.DataFrame({
-        "id": range(1, batch_size + 1),
-        "x": [42] * batch_size,
-        "y": ["a"] * batch_size,
-        "z": [3.14] * batch_size,
-        "part": partition_data,
-        "year": year_data,
-        "timestamp_col": [datetime.now() + timedelta(hours=i) for i in range(batch_size)],
-        "nullable_col": [f"value_{i}" if i % 3 != 0 else None for i in range(batch_size)]
-    })
+    df = pd.DataFrame(
+        {
+            "id": range(1, batch_size + 1),
+            "x": [42] * batch_size,
+            "y": ["a"] * batch_size,
+            "z": [3.14] * batch_size,
+            "part": partition_data,
+            "year": year_data,
+            "timestamp_col": [
+                datetime.now() + timedelta(hours=i) for i in range(batch_size)
+            ],
+            "nullable_col": [
+                f"value_{i}" if i % 3 != 0 else None for i in range(batch_size)
+            ],
+        }
+    )
     ds = ray.data.from_pandas(df)
 
     # Test partition writing with performance measurement
@@ -312,7 +327,6 @@ def test_delta_write_partitioned(data_path, batch_size, write_mode):
     if write_mode == "append":
         start_time = time.time()
         ds.write_delta(path, mode=write_mode, partition_cols=["part", "year"])
-        append_time = time.time() - start_time
 
     # Read the table back with performance measurement
     start_time = time.time()
@@ -322,12 +336,25 @@ def test_delta_write_partitioned(data_path, batch_size, write_mode):
     # Comprehensive validation
     expected_rows = batch_size if write_mode == "overwrite" else batch_size * 2
     actual_rows = res_ds.count()
-    assert actual_rows == expected_rows, f"Expected {expected_rows} rows, got {actual_rows}"
+    assert (
+        actual_rows == expected_rows
+    ), f"Expected {expected_rows} rows, got {actual_rows}"
 
     # Schema validation - ensure all columns are preserved
-    expected_columns = {"id", "x", "y", "z", "part", "year", "timestamp_col", "nullable_col"}
+    expected_columns = {
+        "id",
+        "x",
+        "y",
+        "z",
+        "part",
+        "year",
+        "timestamp_col",
+        "nullable_col",
+    }
     actual_columns = set(res_ds.schema().names)
-    assert actual_columns == expected_columns, f"Schema mismatch. Expected: {expected_columns}, Got: {actual_columns}"
+    assert (
+        actual_columns == expected_columns
+    ), f"Schema mismatch. Expected: {expected_columns}, Got: {actual_columns}"
 
     # Data integrity validation
     all_rows = res_ds.take_all()
@@ -356,8 +383,12 @@ def test_delta_write_partitioned(data_path, batch_size, write_mode):
                 for part_dir in partition_dirs[:2]:  # Check first 2
                     part_path = os.path.join(path, part_dir)
                     if os.path.isdir(part_path):
-                        year_dirs = [d for d in os.listdir(part_path) if d.startswith("year=")]
-                        assert len(year_dirs) > 0, f"No year partitions found in {part_dir}"
+                        year_dirs = [
+                            d for d in os.listdir(part_path) if d.startswith("year=")
+                        ]
+                        assert (
+                            len(year_dirs) > 0
+                        ), f"No year partitions found in {part_dir}"
     except OSError:
         # Directory listing might fail in some environments, that's OK
         pass
@@ -375,7 +406,9 @@ def test_delta_write_partitioned(data_path, batch_size, write_mode):
     expected_nulls = len([i for i in range(batch_size) if i % 3 == 0])
     if write_mode == "append":
         expected_nulls *= 2
-    assert null_count == expected_nulls, f"Expected {expected_nulls} nulls, got {null_count}"
+    assert (
+        null_count == expected_nulls
+    ), f"Expected {expected_nulls} nulls, got {null_count}"
 
     # Performance validation (relaxed thresholds for small datasets)
     if batch_size >= 100:
@@ -389,12 +422,14 @@ def test_scd_convenience_parameters(tmp_path, scd_type):
     import pandas as pd
 
     # Create initial dataset
-    initial_data = pd.DataFrame({
-        "customer_id": [1, 2, 3],
-        "name": ["Alice", "Bob", "Charlie"],
-        "status": ["active", "active", "inactive"],
-        "email": ["alice@test.com", "bob@test.com", "charlie@test.com"]
-    })
+    initial_data = pd.DataFrame(
+        {
+            "customer_id": [1, 2, 3],
+            "name": ["Alice", "Bob", "Charlie"],
+            "status": ["active", "active", "inactive"],
+            "email": ["alice@test.com", "bob@test.com", "charlie@test.com"],
+        }
+    )
 
     path = str(tmp_path / "scd_test")
     ds_initial = ray.data.from_pandas(initial_data)
@@ -403,21 +438,20 @@ def test_scd_convenience_parameters(tmp_path, scd_type):
     ds_initial.write_delta(path, mode="overwrite")
 
     # Create update dataset with changes
-    update_data = pd.DataFrame({
-        "customer_id": [1, 2, 4],  # Update 1, 2 and insert 4
-        "name": ["Alice Updated", "Bob Updated", "David"],
-        "status": ["inactive", "active", "active"],
-        "email": ["alice.new@test.com", "bob@test.com", "david@test.com"]
-    })
+    update_data = pd.DataFrame(
+        {
+            "customer_id": [1, 2, 4],  # Update 1, 2 and insert 4
+            "name": ["Alice Updated", "Bob Updated", "David"],
+            "status": ["inactive", "active", "active"],
+            "email": ["alice.new@test.com", "bob@test.com", "david@test.com"],
+        }
+    )
 
     ds_update = ray.data.from_pandas(update_data)
 
     # Test SCD convenience parameters
     ds_update.write_delta(
-        path,
-        mode="merge",
-        scd_type=scd_type,
-        key_columns=["customer_id"]
+        path, mode="merge", scd_type=scd_type, key_columns=["customer_id"]
     )
 
     # Read back and verify
@@ -448,22 +482,22 @@ def test_merge_conditions(tmp_path):
     import pandas as pd
 
     # Create initial dataset
-    initial_data = pd.DataFrame({
-        "id": [1, 2, 3],
-        "value": [10, 20, 30],
-        "status": ["active", "active", "inactive"]
-    })
+    initial_data = pd.DataFrame(
+        {
+            "id": [1, 2, 3],
+            "value": [10, 20, 30],
+            "status": ["active", "active", "inactive"],
+        }
+    )
 
     path = str(tmp_path / "merge_conditions_test")
     ds_initial = ray.data.from_pandas(initial_data)
     ds_initial.write_delta(path, mode="overwrite")
 
     # Create update dataset
-    update_data = pd.DataFrame({
-        "id": [1, 2, 4],
-        "value": [15, 25, 40],
-        "status": ["updated", "active", "new"]
-    })
+    update_data = pd.DataFrame(
+        {"id": [1, 2, 4], "value": [15, 25, 40], "status": ["updated", "active", "new"]}
+    )
 
     ds_update = ray.data.from_pandas(update_data)
 
@@ -476,15 +510,11 @@ def test_merge_conditions(tmp_path):
         when_not_matched_insert_values={
             "id": "source.id",
             "value": "source.value",
-            "status": "source.status"
-        }
+            "status": "source.status",
+        },
     )
 
-    ds_update.write_delta(
-        path,
-        mode="merge",
-        merge_conditions=conditions
-    )
+    ds_update.write_delta(path, mode="merge", merge_conditions=conditions)
 
     # Read back and verify
     result_ds = ray.data.read_delta(path)
@@ -509,7 +539,6 @@ def test_merge_conditions(tmp_path):
     assert id_to_row[4]["status"] == "new"
 
 
-
 @pytest.mark.parametrize("optimization_type", ["compact", "z_order", "vacuum"])
 def test_standalone_utility_functions(tmp_path, optimization_type):
     """Test standalone utility functions for Delta table optimization."""
@@ -518,24 +547,28 @@ def test_standalone_utility_functions(tmp_path, optimization_type):
 
     # Create a test Delta table
     path = str(tmp_path / "optimization_test")
-    df = pd.DataFrame({
-        "id": range(100),
-        "value": range(100, 200),
-        "timestamp": [datetime.now() - timedelta(days=i) for i in range(100)]
-    })
+    df = pd.DataFrame(
+        {
+            "id": range(100),
+            "value": range(100, 200),
+            "timestamp": [datetime.now() - timedelta(days=i) for i in range(100)],
+        }
+    )
     write_deltalake(path, df, mode="overwrite")
 
     # Add more data to create multiple files
-    df2 = pd.DataFrame({
-        "id": range(100, 200),
-        "value": range(200, 300),
-        "timestamp": [datetime.now() - timedelta(days=i) for i in range(100)]
-    })
+    df2 = pd.DataFrame(
+        {
+            "id": range(100, 200),
+            "value": range(200, 300),
+            "timestamp": [datetime.now() - timedelta(days=i) for i in range(100)],
+        }
+    )
     write_deltalake(path, df2, mode="append")
 
     # Test the appropriate function
     if optimization_type == "compact":
-        compact_delta_table(path, target_file_size=1024*1024)  # 1MB target
+        compact_delta_table(path, target_file_size=1024 * 1024)  # 1MB target
 
     elif optimization_type == "z_order":
         z_order_delta_table(path, columns=["id"])
@@ -554,24 +587,28 @@ def test_merge_config_comprehensive(tmp_path):
     import pandas as pd
 
     # Create initial dataset
-    initial_data = pd.DataFrame({
-        "id": [1, 2, 3],
-        "name": ["Alice", "Bob", "Charlie"],
-        "value": [100, 200, 300],
-        "active": [True, True, False]
-    })
+    initial_data = pd.DataFrame(
+        {
+            "id": [1, 2, 3],
+            "name": ["Alice", "Bob", "Charlie"],
+            "value": [100, 200, 300],
+            "active": [True, True, False],
+        }
+    )
 
     path = str(tmp_path / "merge_config_test")
     ds_initial = ray.data.from_pandas(initial_data)
     ds_initial.write_delta(path, mode="overwrite")
 
     # Create update dataset
-    update_data = pd.DataFrame({
-        "id": [1, 2, 4],
-        "name": ["Alice Updated", "Bob Updated", "David"],
-        "value": [150, 250, 400],
-        "active": [True, True, True]
-    })
+    update_data = pd.DataFrame(
+        {
+            "id": [1, 2, 4],
+            "name": ["Alice Updated", "Bob Updated", "David"],
+            "value": [150, 250, 400],
+            "active": [True, True, True],
+        }
+    )
 
     ds_update = ray.data.from_pandas(update_data)
 
@@ -581,14 +618,10 @@ def test_merge_config_comprehensive(tmp_path):
         when_matched_update_condition="target.active = true",
         when_matched_delete_condition="source.value < 0",
         when_not_matched_insert_condition="source.active = true",
-        target_columns=["name", "value", "active"]
+        target_columns=["name", "value", "active"],
     )
 
-    ds_update.write_delta(
-        path,
-        mode="merge",
-        merge_config=merge_config
-    )
+    ds_update.write_delta(path, mode="merge", merge_config=merge_config)
 
     # Read back and verify
     result_ds = ray.data.read_delta(path)
@@ -619,11 +652,13 @@ def test_microbatch_processing(tmp_path):
     import pandas as pd
 
     # Create a large dataset
-    large_data = pd.DataFrame({
-        "id": range(1000),
-        "value": range(1000, 2000),
-        "category": ["A" if i % 2 == 0 else "B" for i in range(1000)]
-    })
+    large_data = pd.DataFrame(
+        {
+            "id": range(1000),
+            "value": range(1000, 2000),
+            "category": ["A" if i % 2 == 0 else "B" for i in range(1000)],
+        }
+    )
 
     path = str(tmp_path / "microbatch_test")
     ds_large = ray.data.from_pandas(large_data)
@@ -633,7 +668,7 @@ def test_microbatch_processing(tmp_path):
         path,
         mode="overwrite",
         max_rows_per_file=100,  # Force multiple files
-        max_rows_per_group=50   # Small groups
+        max_rows_per_group=50,  # Small groups
     )
 
     # Read back and verify
@@ -646,44 +681,46 @@ def test_microbatch_processing(tmp_path):
     assert all("id" in row for row in sample_rows)
 
 
-def test_advanced_merge_operations():
+def test_advanced_merge_operations(tmp_path):
     """Test advanced merge scenarios with comprehensive validation."""
-    with delta_test_context("advanced_merge") as temp_dir:
+    with delta_test_context("advanced_merge", str(tmp_path)) as temp_dir:
         path = os.path.join(temp_dir, "advanced_merge_table")
 
         # Create initial dataset with rich schema
-        initial_data = pd.DataFrame({
-            "id": [1, 2, 3, 4],
-            "name": ["Alice", "Bob", "Charlie", "Diana"],
-            "department": ["Engineering", "Finance", "Engineering", "HR"],
-            "salary": [100000, 85000, 120000, 75000],
-            "active": [True, True, False, True],
-            "last_updated": ["2023-01-01"] * 4,
-            "version": [1] * 4
-        })
+        initial_data = pd.DataFrame(
+            {
+                "id": [1, 2, 3, 4],
+                "name": ["Alice", "Bob", "Charlie", "Diana"],
+                "department": ["Engineering", "Finance", "Engineering", "HR"],
+                "salary": [100000, 85000, 120000, 75000],
+                "active": [True, True, False, True],
+                "last_updated": ["2023-01-01"] * 4,
+                "version": [1] * 4,
+            }
+        )
 
         ds_initial = ray.data.from_pandas(initial_data)
         ds_initial.write_delta(path, mode="overwrite")
 
         # Test 1: Complex upsert with conditions
-        update_data = pd.DataFrame({
-            "id": [1, 2, 5],  # Update 1,2 and insert 5
-            "name": ["Alice Updated", "Bob Updated", "Eve"],
-            "department": ["Engineering", "Finance", "Marketing"],
-            "salary": [110000, 87000, 95000],
-            "active": [True, True, True],
-            "last_updated": ["2023-06-01"] * 3,
-            "version": [2] * 3
-        })
+        update_data = pd.DataFrame(
+            {
+                "id": [1, 2, 5],  # Update 1,2 and insert 5
+                "name": ["Alice Updated", "Bob Updated", "Eve"],
+                "department": ["Engineering", "Finance", "Marketing"],
+                "salary": [110000, 87000, 95000],
+                "active": [True, True, True],
+                "last_updated": ["2023-06-01"] * 3,
+                "version": [2] * 3,
+            }
+        )
 
         ds_update = ray.data.from_pandas(update_data)
 
         # Perform merge with comprehensive configuration
         start_time = time.time()
         ds_update.write_delta(
-            path,
-            mode="merge",
-            upsert_condition="target.id = source.id"
+            path, mode="merge", upsert_condition="target.id = source.id"
         )
         merge_time = time.time() - start_time
 
@@ -692,7 +729,9 @@ def test_advanced_merge_operations():
         result_df = pd.DataFrame(result_ds.take_all())
 
         # Comprehensive validation
-        DeltaTestValidator.validate_data_integrity(result_df, 5, "id")  # 4 original + 1 new
+        DeltaTestValidator.validate_data_integrity(
+            result_df, 5, "id"
+        )  # 4 original + 1 new
 
         # Validate specific merge outcomes
         id_to_row = {row["id"]: row for row in result_ds.take_all()}

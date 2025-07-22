@@ -41,13 +41,13 @@ from ray.data._internal.datasource.clickhouse_datasink import (
     SinkMode,
 )
 from ray.data._internal.datasource.csv_datasink import CSVDatasink
-from ray.data._internal.datasource.delta_datasink import (
+from ray.data._internal.datasource.delta import (
     DeltaDatasink,
     DeltaWriteConfig,
-    SCDConfig,
-    MergeConfig,
     MergeConditions,
+    MergeConfig,
     OptimizationConfig,
+    SCDConfig,
     WriteMode,
 )
 from ray.data._internal.datasource.iceberg_datasink import IcebergDatasink
@@ -3696,7 +3696,7 @@ class Dataset:
                         target_columns=["name", "email", "status"]
                     )
 
-            merge_conditions: Databricks-style merge conditions object providing
+            merge_conditions: DeltaMergeBuilder merge conditions object providing
                 granular control over merge operations with support for multiple
                 match/no-match scenarios.
 
