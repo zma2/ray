@@ -10,7 +10,10 @@ from typing import Dict, Optional
 
 from deltalake import DeltaTable
 
-from ray.data._internal.datasource.delta.config import OptimizationConfig, OptimizationMode
+from ray.data._internal.datasource.delta.config import (
+    OptimizationConfig,
+    OptimizationMode,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +48,7 @@ class DeltaTableOptimizer:
         """
         try:
             dt = DeltaTable(self.table_path, storage_options=self.storage_options)
-            
+
             if self.config.mode == OptimizationMode.COMPACT:
                 return self._compact(dt)
             elif self.config.mode == OptimizationMode.Z_ORDER:
@@ -54,7 +57,7 @@ class DeltaTableOptimizer:
                 return self._vacuum(dt)
             else:
                 raise ValueError(f"Unknown optimization mode: {self.config.mode}")
-                
+
         except Exception as e:
             logger.error(f"Optimization failed: {e}")
             raise
@@ -75,7 +78,7 @@ class DeltaTableOptimizer:
                 target_size=self.config.target_size_bytes,
                 max_concurrent_tasks=self.config.max_concurrent_tasks,
             )
-            
+
             return {
                 "operation": "compact",
                 "files_added": metrics.get("files_added", 0),
@@ -100,8 +103,10 @@ class DeltaTableOptimizer:
             Dict with Z-order metrics
         """
         if not self.config.z_order_columns:
-            raise ValueError("z_order_columns must be specified for Z-order optimization")
-            
+            raise ValueError(
+                "z_order_columns must be specified for Z-order optimization"
+            )
+
         try:
             metrics = dt.optimize.z_order(
                 columns=self.config.z_order_columns,
@@ -110,7 +115,7 @@ class DeltaTableOptimizer:
                 max_concurrent_tasks=self.config.max_concurrent_tasks,
                 max_spill_size=self.config.max_spill_size,
             )
-            
+
             return {
                 "operation": "z_order",
                 "columns": self.config.z_order_columns,
@@ -138,13 +143,13 @@ class DeltaTableOptimizer:
         try:
             # Default retention to 168 hours (7 days) if not specified
             retention_hours = self.config.retention_hours or 168
-            
+
             files = dt.vacuum(
                 retention_hours=retention_hours,
                 enforce_retention_duration=True,
                 dry_run=False,  # Note: always performs actual deletion
             )
-            
+
             return {
                 "operation": "vacuum",
                 "retention_hours": retention_hours,

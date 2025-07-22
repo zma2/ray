@@ -125,7 +125,9 @@ class MergeConfig:
 
     # Retry configuration for concurrent write conflicts
     max_retry_attempts: int = 3  # Maximum number of retry attempts for merge conflicts
-    base_retry_delay: float = 0.1  # Base delay in seconds between retries (exponential backoff)
+    base_retry_delay: float = (
+        0.1  # Base delay in seconds between retries (exponential backoff)
+    )
     max_retry_delay: float = 5.0  # Maximum delay in seconds between retries
 
     # SCD configuration (optional)
@@ -148,17 +150,24 @@ class MergeConfig:
 
         # Validate retry parameters
         if self.max_retry_attempts < 0:
-            raise ValueError(f"max_retry_attempts must be non-negative, got {self.max_retry_attempts}")
+            raise ValueError(
+                f"max_retry_attempts must be non-negative, got {self.max_retry_attempts}"
+            )
         if self.base_retry_delay < 0:
-            raise ValueError(f"base_retry_delay must be non-negative, got {self.base_retry_delay}")
+            raise ValueError(
+                f"base_retry_delay must be non-negative, got {self.base_retry_delay}"
+            )
         if self.max_retry_delay < self.base_retry_delay:
-            raise ValueError(f"max_retry_delay ({self.max_retry_delay}) must be >= base_retry_delay ({self.base_retry_delay})")
+            raise ValueError(
+                f"max_retry_delay ({self.max_retry_delay}) must be >= base_retry_delay ({self.base_retry_delay})"
+            )
         if self.max_retry_attempts > 10:
             import warnings
+
             warnings.warn(
                 f"max_retry_attempts={self.max_retry_attempts} is very high and may cause long delays. "
                 "Consider using 3-5 retries for most use cases.",
-                UserWarning
+                UserWarning,
             )
 
 

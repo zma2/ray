@@ -77,7 +77,7 @@ class DeltaTableMerger:
             except Exception as e:
                 if attempt < max_retries:
                     # Exponential backoff with jitter
-                    delay = min(base_delay * (2 ** attempt), max_delay)
+                    delay = min(base_delay * (2**attempt), max_delay)
                     jitter = random.uniform(0, 0.1) * delay
                     total_delay = delay + jitter
 
@@ -98,7 +98,7 @@ class DeltaTableMerger:
     ) -> Dict[str, Any]:
         """Execute SCD (Slowly Changing Dimensions) merge."""
         scd_config = config.scd_config
-        
+
         if scd_config.scd_type == 1:
             return self._execute_scd_type_1(dt, source_data, scd_config)
         elif scd_config.scd_type == 2:
@@ -113,13 +113,15 @@ class DeltaTableMerger:
     ) -> Dict[str, Any]:
         """Execute SCD Type 1 merge (overwrite changed attributes)."""
         # Build key predicate
-        key_predicate = " AND ".join([
-            f"target.{col} = source.{col}" for col in scd_config.key_columns
-        ])
+        key_predicate = " AND ".join(
+            [f"target.{col} = source.{col}" for col in scd_config.key_columns]
+        )
 
         # Build update expressions
         if scd_config.overwrite_columns:
-            update_exprs = {col: f"source.{col}" for col in scd_config.overwrite_columns}
+            update_exprs = {
+                col: f"source.{col}" for col in scd_config.overwrite_columns
+            }
         else:
             # Update all non-key columns
             source_columns = set(source_data.schema.names)
@@ -143,7 +145,7 @@ class DeltaTableMerger:
         )
 
         result = merge_builder.execute()
-        
+
         return {
             "scd_type": 1,
             "key_columns": scd_config.key_columns,
@@ -160,7 +162,7 @@ class DeltaTableMerger:
 
         # Add SCD Type 2 columns to source data if not present
         source_df = source_data.to_pandas()
-        
+
         if scd_config.version_column not in source_df.columns:
             source_df[scd_config.version_column] = 1
         if scd_config.current_flag_column not in source_df.columns:
@@ -174,9 +176,9 @@ class DeltaTableMerger:
         source_data_with_scd = pa.Table.from_pandas(source_df)
 
         # Build key predicate
-        key_predicate = " AND ".join([
-            f"target.{col} = source.{col}" for col in scd_config.key_columns
-        ])
+        key_predicate = " AND ".join(
+            [f"target.{col} = source.{col}" for col in scd_config.key_columns]
+        )
 
         # For SCD Type 2, we need to:
         # 1. Update existing records to mark them as not current
@@ -207,18 +209,19 @@ class DeltaTableMerger:
 
         if change_condition:
             merge_builder = merge_builder.when_matched_update(
-                condition=change_condition,
-                set=update_exprs
+                condition=change_condition, set=update_exprs
             )
         else:
             merge_builder = merge_builder.when_matched_update(set=update_exprs)
 
         # Insert new version for all records (new and changed)
-        insert_exprs = {col: f"source.{col}" for col in source_data_with_scd.schema.names}
+        insert_exprs = {
+            col: f"source.{col}" for col in source_data_with_scd.schema.names
+        }
         merge_builder = merge_builder.when_not_matched_insert(values=insert_exprs)
 
         result = merge_builder.execute()
-        
+
         return {
             "scd_type": 2,
             "key_columns": scd_config.key_columns,
@@ -231,14 +234,14 @@ class DeltaTableMerger:
     ) -> Dict[str, Any]:
         """Execute SCD Type 3 merge (keep previous values in same row)."""
         # Build key predicate
-        key_predicate = " AND ".join([
-            f"target.{col} = source.{col}" for col in scd_config.key_columns
-        ])
+        key_predicate = " AND ".join(
+            [f"target.{col} = source.{col}" for col in scd_config.key_columns]
+        )
 
         # Build update expressions for SCD Type 3
         update_exprs = {}
         change_columns = scd_config.change_columns or []
-        
+
         for col in source_data.schema.names:
             if col not in scd_config.key_columns:
                 if col in change_columns:
@@ -266,7 +269,7 @@ class DeltaTableMerger:
         )
 
         result = merge_builder.execute()
-        
+
         return {
             "scd_type": 3,
             "key_columns": scd_config.key_columns,
@@ -342,7 +345,7 @@ class DeltaTableMerger:
 
         # Execute the merge
         result = merge_builder.execute()
-        
+
         return {
             "merge_type": "delta_merge_builder",
             "predicate": conditions.merge_predicate,
@@ -394,7 +397,7 @@ class DeltaTableMerger:
         )
 
         result = merge_builder.execute()
-        
+
         return {
             "merge_mode": "upsert",
             "predicate": config.predicate,
@@ -422,7 +425,7 @@ class DeltaTableMerger:
         ).when_not_matched_insert(values=insert_exprs)
 
         result = merge_builder.execute()
-        
+
         return {
             "merge_mode": "insert_only",
             "predicate": config.predicate,
@@ -450,7 +453,7 @@ class DeltaTableMerger:
         ).when_matched_update(set=update_exprs)
 
         result = merge_builder.execute()
-        
+
         return {
             "merge_mode": "update_only",
             "predicate": config.predicate,
@@ -474,7 +477,7 @@ class DeltaTableMerger:
         ).when_matched_delete()
 
         result = merge_builder.execute()
-        
+
         return {
             "merge_mode": "delete",
             "predicate": delete_predicate,

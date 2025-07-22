@@ -266,16 +266,23 @@ class DeltaUtilities:
             "adl://",
             "hdfs://",
         ]
-        cloud_schemes = ("s3://", "s3a://", "gs://", "gcs://", "abfss://", "abfs://", "adl://")
+        cloud_schemes = (
+            "s3://",
+            "s3a://",
+            "gs://",
+            "gcs://",
+            "abfss://",
+            "abfs://",
+            "adl://",
+        )
 
         if any(path_lower.startswith(scheme) for scheme in supported_schemes):
-            if (
-                path_lower.startswith(cloud_schemes)
-                and len(path.split("/")) < 4
-            ):
+            if path_lower.startswith(cloud_schemes) and len(path.split("/")) < 4:
                 raise ValueError(f"Cloud storage path appears incomplete: {path}")
         elif path_lower.startswith("azure://"):
-            raise ValueError("Use 'abfss://' or 'abfs://' instead of 'azure://' for Azure paths")
+            raise ValueError(
+                "Use 'abfss://' or 'abfs://' instead of 'azure://' for Azure paths"
+            )
         elif not path.startswith("/") and "://" not in path:
             # Assume local path
             pass
@@ -299,20 +306,20 @@ def compact_delta_table(
         partition_filters: Optional partition filters
         target_size: Target file size in bytes
         max_concurrent_tasks: Maximum concurrent tasks
-        
+
     Returns:
         Dict with compaction metrics
     """
     try:
         dt = DeltaTable(table_path, storage_options=storage_options)
-        
+
         # Perform compaction
         metrics = dt.optimize.compact(
             partition_filters=partition_filters,
             target_size=target_size,
             max_concurrent_tasks=max_concurrent_tasks,
         )
-        
+
         return {
             "files_added": metrics.get("files_added", 0),
             "files_removed": metrics.get("files_removed", 0),
@@ -346,13 +353,13 @@ def z_order_delta_table(
         target_size: Target file size in bytes
         max_concurrent_tasks: Maximum concurrent tasks
         max_spill_size: Maximum spill size in bytes
-        
+
     Returns:
         Dict with Z-order metrics
     """
     try:
         dt = DeltaTable(table_path, storage_options=storage_options)
-        
+
         # Perform Z-order optimization
         metrics = dt.optimize.z_order(
             columns=columns,
@@ -361,7 +368,7 @@ def z_order_delta_table(
             max_concurrent_tasks=max_concurrent_tasks,
             max_spill_size=max_spill_size,
         )
-        
+
         return {
             "files_added": metrics.get("files_added", 0),
             "files_removed": metrics.get("files_removed", 0),
@@ -391,20 +398,20 @@ def vacuum_delta_table(
         storage_options: Storage options for the filesystem
         enforce_retention_duration: Whether to enforce retention duration
         dry_run: Whether to perform a dry run
-        
+
     Returns:
         List of files that were or would be deleted
     """
     try:
         dt = DeltaTable(table_path, storage_options=storage_options)
-        
+
         # Perform vacuum operation
         files = dt.vacuum(
             retention_hours=retention_hours,
             enforce_retention_duration=enforce_retention_duration,
             dry_run=dry_run,
         )
-        
+
         return files
     except Exception as e:
         logger.error(f"Vacuum failed: {e}")

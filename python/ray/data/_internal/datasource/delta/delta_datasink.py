@@ -90,8 +90,10 @@ class DeltaDatasink(_FileDatasink):
         self.write_kwargs = write_kwargs
 
         # Initialize Delta utilities
-        self.delta_utils = DeltaUtilities(path, storage_options=write_kwargs.get("storage_options"))
-        
+        self.delta_utils = DeltaUtilities(
+            path, storage_options=write_kwargs.get("storage_options")
+        )
+
         # Cloud provider utilities
         self.aws_utils = AWSUtilities()
         self.gcp_utils = GCPUtilities()
@@ -111,7 +113,7 @@ class DeltaDatasink(_FileDatasink):
             schema=schema,
             merge_config=self.merge_config,
             optimization_config=self.optimization_config,
-            **write_kwargs
+            **write_kwargs,
         )
 
         # Set up filesystem
@@ -135,14 +137,14 @@ class DeltaDatasink(_FileDatasink):
             Dict with storage options
         """
         storage_options = self.write_kwargs.get("storage_options", {})
-        
+
         if self.is_aws:
             aws_options = self.aws_utils.get_s3_storage_options(self.path)
             storage_options.update(aws_options)
         elif self.is_azure:
             azure_options = self.azure_utils.get_azure_storage_options(self.path)
             storage_options.update(azure_options)
-        
+
         return storage_options
 
     def write(
@@ -206,7 +208,9 @@ class DeltaDatasink(_FileDatasink):
             if self.delta_write_config.configuration:
                 write_args["configuration"] = self.delta_write_config.configuration
             if self.delta_write_config.storage_options:
-                write_args["storage_options"].update(self.delta_write_config.storage_options)
+                write_args["storage_options"].update(
+                    self.delta_write_config.storage_options
+                )
 
             # Execute write
             write_deltalake(**write_args)
@@ -223,12 +227,14 @@ class DeltaDatasink(_FileDatasink):
             if self.optimization_config:
                 try:
                     optimizer = DeltaTableOptimizer(
-                        self.path, 
+                        self.path,
                         storage_options=self.storage_options,
-                        config=self.optimization_config
+                        config=self.optimization_config,
                     )
                     optimization_result = optimizer.optimize()
-                    logger.info(f"Post-write optimization completed: {optimization_result}")
+                    logger.info(
+                        f"Post-write optimization completed: {optimization_result}"
+                    )
 
                     # Add optimization metrics to write result if possible
                     if hasattr(result, "optimization_metrics"):
@@ -265,15 +271,11 @@ class DeltaDatasink(_FileDatasink):
             if dt:
                 actions = self._get_add_actions_from_table(dt)
                 result = DeltaSinkWriteResult(
-                    actions=actions, 
-                    schema=table.schema, 
-                    merge_metrics=merge_result
+                    actions=actions, schema=table.schema, merge_metrics=merge_result
                 )
             else:
                 result = DeltaSinkWriteResult(
-                    actions=[], 
-                    schema=table.schema, 
-                    merge_metrics=merge_result
+                    actions=[], schema=table.schema, merge_metrics=merge_result
                 )
 
             # Perform post-merge optimization if configured
@@ -281,11 +283,11 @@ class DeltaDatasink(_FileDatasink):
                 try:
                     optimizer = DeltaTableOptimizer(
                         self.path,
-                        storage_options=self.storage_options, 
-                        config=self.optimization_config
+                        storage_options=self.storage_options,
+                        config=self.optimization_config,
                     )
                     optimization_result = optimizer.optimize()
-                    
+
                     # Add optimization metrics to write result
                     if hasattr(result, "optimization_metrics"):
                         result.optimization_metrics = optimization_result
@@ -311,7 +313,7 @@ class DeltaDatasink(_FileDatasink):
         """Extract add actions from Delta table for result metadata."""
         try:
             actions = []
-            
+
             # Get the latest version's add actions
             for action in dt.get_add_actions(flatten=True).to_pylist():
                 # Try to create DeltaAddAction with stats
@@ -319,9 +321,14 @@ class DeltaDatasink(_FileDatasink):
                     delta_action = DeltaAddAction(
                         path=str(action.path),
                         size_bytes=int(action.size_bytes) if action.size_bytes else 0,
-                        partition_values=dict(action.partition_values) if action.partition_values else {},
-                        modification_time=int(action.modification_time) if action.modification_time else 0,
-                        data_change=bool(action.data_change) if hasattr(action, 'data_change') 
+                        partition_values=dict(action.partition_values)
+                        if action.partition_values
+                        else {},
+                        modification_time=int(action.modification_time)
+                        if action.modification_time
+                        else 0,
+                        data_change=bool(action.data_change)
+                        if hasattr(action, "data_change")
                         else True,
                         stats=str(action.stats) if action.stats else None,
                     )
@@ -330,16 +337,21 @@ class DeltaDatasink(_FileDatasink):
                     delta_action = DeltaAddAction(
                         path=str(action.path),
                         size_bytes=int(action.size_bytes) if action.size_bytes else 0,
-                        partition_values=dict(action.partition_values) if action.partition_values else {},
-                        modification_time=int(action.modification_time) if action.modification_time else 0,
-                        data_change=bool(action.data_change) if hasattr(action, 'data_change') 
+                        partition_values=dict(action.partition_values)
+                        if action.partition_values
+                        else {},
+                        modification_time=int(action.modification_time)
+                        if action.modification_time
+                        else 0,
+                        data_change=bool(action.data_change)
+                        if hasattr(action, "data_change")
                         else True,
                     )
-                
+
                 actions.append(delta_action)
 
             return actions
-            
+
         except Exception as e:
             logger.warning(f"Could not extract add actions: {e}")
             return []

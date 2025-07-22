@@ -44,7 +44,7 @@ __all__ = [
     "DeltaTableOptimizer",
     # Configuration classes
     "AddAction",
-    "DeltaSinkWriteResult", 
+    "DeltaSinkWriteResult",
     "DeltaWriteConfig",
     "MergeConditions",
     "MergeConfig",
@@ -58,7 +58,7 @@ __all__ = [
     "AWSUtilities",
     "AzureUtilities",
     "DeltaJSONEncoder",
-    "DeltaUtilities", 
+    "DeltaUtilities",
     "GCPUtilities",
     # Standalone functions
     "compact_delta_table",
